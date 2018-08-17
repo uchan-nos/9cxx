@@ -1,3 +1,6 @@
 #!/bin/sh
 
-./run_testcase.sh "3" 3 ""
+RUNNER=$(dirname $0)/run_testcase.sh
+
+$RUNNER "1" 1 ""
+$RUNNER "3" 3 ""
