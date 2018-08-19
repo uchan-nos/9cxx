@@ -1,4 +1,5 @@
 OBJS = main.o
+CXXFLAGS = -std=c++1z
 
 all: 9cxx
 

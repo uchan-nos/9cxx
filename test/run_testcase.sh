@@ -1,34 +1,48 @@
 #!/bin/sh
 
-if [ $# -ne 3 ]
+if [ $# -ne 4 ]
 then
-    echo "Usage: $0 TESTCASE EXPECTED_CODE EXPECTED_OUT"
+    echo "Usage: $0 TESTCASE COMPILE_CODE EXPECTED_CODE EXPECTED_OUT"
     exit 1
 fi
 
-TESTCASE=$1
-EXPECTED_CODE=$2
-EXPECTED_OUT=$3
+TESTCASE="$1"
+COMPILE_CODE=$2
+EXPECTED_CODE=$3
+EXPECTED_OUT="$4"
 
 CXX=$(dirname $0)/../src/9cxx
 
-if [ -f $TESTCASE.cpp ]
+if [ -f "$TESTCASE.cpp" ]
 then
-    cat $TESTCASE.cpp | $CXX > $TESTCASE.s
-else
-    echo "$TESTCASE" | $CXX > $TESTCASE.s
+    TESTCASE=$(cat "$TESTCASE.cpp")
 fi
-clang++ $TESTCASE.s
 
-./a.out > actual.out
+if [ "$QUIET" = "y" ]
+then
+    echo "$TESTCASE" | $CXX 2>/dev/null > $(dirname $0)/"$TESTCASE.s"
+else
+    echo "$TESTCASE" | $CXX > $(dirname $0)/"$TESTCASE.s"
+fi
+COMPILE_ACTUAL_CODE=$?
+if [ $COMPILE_ACTUAL_CODE -ne $COMPILE_CODE ]
+then
+    echo "[FAILED] testcase $TESTCASE"
+    echo "  Actual compile code $COMPILE_ACTUAL_CODE, expected $COMPILE_CODE"
+    exit -1
+fi
+
+clang++ $(dirname $0)/"$TESTCASE.s" -o $(dirname $0)/a.out
+
+$(dirname $0)/a.out > $(dirname $0)/actual.out
 ACTUAL_CODE=$?
 
 if [ ! -f "$EXPECTED_OUT" ]
 then
-    echo -n "$EXPECTED_OUT" > expected.out
-    EXPECTED_OUT=expected.out
+    echo -n "$EXPECTED_OUT" > $(dirname $0)/expected.out
+    EXPECTED_OUT=$(dirname $0)/expected.out
 fi
-DIFF=$(diff actual.out $EXPECTED_OUT)
+DIFF=$(diff $(dirname $0)/actual.out $EXPECTED_OUT)
 
 TEST_FAILED=0
 if [ "$DIFF" != "" ]
@@ -47,6 +61,8 @@ then
 else
     echo "[FAILED] testcase $TESTCASE"
     echo "  Actual code $ACTUAL_CODE, expected $EXPECTED_CODE"
-    echo "  Actual out $(cat actual.out), expected $EXPECTED_OUT"
+    echo "  Actual out $(cat $(dirname $0)/actual.out), expected $EXPECTED_OUT"
+    exit -1
 fi
 
+exit 0
