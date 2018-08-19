@@ -41,19 +41,91 @@ class AssemblyLine {
   std::string line_;
 };
 
-std::vector<AssemblyLine> GenerateCode(std::shared_ptr<ASTNode> ast_root) {
-  std::vector<AssemblyLine> code;
-  code.push_back(AssemblyLine(".intel_syntax noprefix"));
-  code.push_back(AssemblyLine(".global main"));
-  code.push_back(AssemblyLine("main:"));
-
-  if (auto n = std::dynamic_pointer_cast<IntegerLiteral>(ast_root)) {
-    code.push_back(AssemblyLine("  mov eax, %1%").Format(n->GetValue()));
+class CodeGenerateVisitor : public Visitor {
+ public:
+  CodeGenerateVisitor(std::vector<AssemblyLine>& code) : code_{code} {
   }
 
-  code.push_back(AssemblyLine("  ret"));
-  return code;
-}
+  void Visit(ASTNode* n) {
+  }
+
+  void Visit(EqualityExpression* exp) {
+    exp->rhs->Accept(this);
+    code_.push_back(AssemblyLine("  push rax"));
+    exp->lhs->Accept(this);
+    code_.push_back(AssemblyLine("  pop rbx"));
+
+    const char* op_mnemonic = "";
+    if (exp->op == TokenType::kOpEqual) {
+      op_mnemonic = "sete";
+    } else if (exp->op == TokenType::kOpNotEqual) {
+      op_mnemonic = "setne";
+    }
+    code_.push_back(AssemblyLine("  cmp eax, ebx"));
+    code_.push_back(AssemblyLine("  %1% bl").Format(op_mnemonic));
+    code_.push_back(AssemblyLine("  xor rax, rax"));
+    code_.push_back(AssemblyLine("  mov al, bl"));
+  }
+
+  void Visit(AdditiveExpression* exp) {
+    exp->rhs->Accept(this);
+    code_.push_back(AssemblyLine("  push rax"));
+    exp->lhs->Accept(this);
+    code_.push_back(AssemblyLine("  pop rbx"));
+
+    const char* op_mnemonic = "";
+    if (exp->op == TokenType::kOpPlus) {
+      op_mnemonic = "add";
+    } else if (exp->op == TokenType::kOpMinus) {
+      op_mnemonic = "sub";
+    }
+    code_.push_back(AssemblyLine("  %1% eax, ebx").Format(op_mnemonic));
+  }
+
+  void Visit(MultiplicativeExpression* exp) {
+    exp->rhs->Accept(this);
+    code_.push_back(AssemblyLine("  push rax"));
+    exp->lhs->Accept(this);
+    code_.push_back(AssemblyLine("  pop rbx"));
+
+    const char* op_mnemonic = "";
+    if (exp->op == TokenType::kOpMult) {
+      op_mnemonic = "mul";
+    } else if (exp->op == TokenType::kOpDiv) {
+      op_mnemonic = "div";
+    }
+    code_.push_back(AssemblyLine("  xor rdx, rdx"));
+    code_.push_back(AssemblyLine("  %1% ebx").Format(op_mnemonic));
+  }
+
+  void Visit(IntegerLiteral* exp) {
+    code_.push_back(AssemblyLine("  mov eax, %1%").Format(exp->value));
+  }
+
+ private:
+  std::vector<AssemblyLine>& code_;
+};
+
+class CodeGenerator {
+ public:
+  void Generate(std::shared_ptr<ASTNode> ast_root) {
+    code_.push_back(AssemblyLine(".intel_syntax noprefix"));
+    code_.push_back(AssemblyLine(".global main"));
+    code_.push_back(AssemblyLine("main:"));
+
+    CodeGenerateVisitor visitor{code_};
+    ast_root->Accept(&visitor);
+
+    code_.push_back(AssemblyLine("  ret"));
+  }
+
+  const std::vector<AssemblyLine>& GetCode() const {
+    return code_;
+  }
+
+ private:
+  std::vector<AssemblyLine> code_;
+};
 
 int main(void) {
   char src[MAX_SOURCE_LENGTH];
@@ -74,13 +146,14 @@ int main(void) {
 
   TokenReader token_reader{tokens};
   Parser parser{token_reader};
-  if (!parser.Parse()) {
+  if (!parser.Parse() || !parser.GetAST()) {
     fprintf(stderr, "Parse error\n");
     return -1;
   }
 
-  auto code = GenerateCode(parser.GetAST());
-  for (auto& line : code) {
+  CodeGenerator generator;
+  generator.Generate(parser.GetAST());
+  for (auto& line : generator.GetCode()) {
     std::cout << line.ToString() << std::endl;
   }
   return 0;

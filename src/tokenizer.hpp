@@ -1,4 +1,5 @@
 enum class TokenType {
+  kUnknown,
   kInteger,
   kId,
   kOpPlus,
@@ -14,10 +15,10 @@ enum class TokenType {
   kRBrace,
   kSemicolon,
   kEOF,
-  kUnknown,
 };
 
 const char* token_name_table[] = {
+  "kUnknown",
   "kInteger",
   "kId",
   "kOpPlus",
@@ -33,7 +34,6 @@ const char* token_name_table[] = {
   "kRBrace",
   "kSemicolon",
   "kEOF",
-  "kUnknown",
 };
 
 const char* GetTokenName(TokenType type) {
