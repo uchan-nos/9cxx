@@ -9,6 +9,8 @@ enum class TokenType {
   kOpMinus,
   kOpMult,
   kOpDiv,
+  kLParen,
+  kRParen,
   kEOF,
   kUnknown,
 };
@@ -19,6 +21,8 @@ const char* token_name_table[] = {
   "kOpMinus",
   "kOpMult",
   "kOpDiv",
+  "kLParen",
+  "kRParen",
   "kEOF",
   "kUnknown",
 };
@@ -96,6 +100,10 @@ Token ReadToken(SourceReader& reader) {
     return {TokenType::kOpMinus, 0};
   } else if (reader.Read('*')) {
     return {TokenType::kOpMult, 0};
+  } else if (reader.Read('(')) {
+    return {TokenType::kLParen, 0};
+  } else if (reader.Read(')')) {
+    return {TokenType::kRParen, 0};
   } else if (reader.Read('/')) {
     return {TokenType::kOpDiv, 0};
   } else if (auto result = ReadInteger(reader); result.success) {
@@ -158,14 +166,35 @@ class TokenReader {
   size_t size_;
 };
 
-bool ReadMultiplicativeExpr(TokenReader& reader) {
+bool ReadAdditiveExpr(TokenReader& reader);
+
+bool ReadPrimaryExpr(TokenReader& reader) {
+  if (reader.Read(TokenType::kLParen)) {
+    if (!ReadAdditiveExpr(reader)) {
+      return false;
+    }
+    Token token = reader.Read();
+    if (token.type != TokenType::kRParen) {
+      fprintf(stderr, "Error in ReadPrimaryExpr: kRParen is expectd. actual %s\n", GetTokenName(token.type));
+      return false;
+    }
+    return true;
+  }
+
   Token token = reader.Read();
   if (token.type != TokenType::kInteger) {
-    fprintf(stderr, "Error in ReadMultilicativeExpr: kInteger is expected. actual %s\n", GetTokenName(token.type));
+    fprintf(stderr, "Error in ReadPrimaryExpr: kInteger is expected. actual %s\n", GetTokenName(token.type));
     return false;
   }
 
   printf("  mov eax, %d\n", token.int_value);
+  return true;
+}
+
+bool ReadMultiplicativeExpr(TokenReader& reader) {
+  if (!ReadPrimaryExpr(reader)) {
+    return false;
+  }
 
   while (true) {
     const char* op_mnemonic;
@@ -177,13 +206,14 @@ bool ReadMultiplicativeExpr(TokenReader& reader) {
       return true;
     }
 
-    token = reader.Read();
-    if (token.type != TokenType::kInteger) {
-      fprintf(stderr, "Error in ReadMultiplicativeExpr: kInteger is expected. actual %s\n", GetTokenName(token.type));
+    printf("  push rax\n");
+    if (!ReadPrimaryExpr(reader)) {
       return false;
     }
 
-    printf("xor rdx,rdx\n  mov ebx, %d\n  %s ebx\n", token.int_value, op_mnemonic);
+    printf("  mov rbx, rax\n");
+    printf("  pop rax\n");
+    printf("  xor rdx,rdx\n  %s ebx\n", op_mnemonic);
   }
 }
 
