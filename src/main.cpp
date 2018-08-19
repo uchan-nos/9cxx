@@ -166,11 +166,11 @@ class TokenReader {
   size_t size_;
 };
 
-bool ReadAdditiveExpr(TokenReader& reader);
+bool ReadExpr(TokenReader& reader);
 
 bool ReadPrimaryExpr(TokenReader& reader) {
   if (reader.Read(TokenType::kLParen)) {
-    if (!ReadAdditiveExpr(reader)) {
+    if (!ReadExpr(reader)) {
       return false;
     }
     Token token = reader.Read();
@@ -241,6 +241,10 @@ bool ReadAdditiveExpr(TokenReader& reader) {
     printf("  %s rbx, rax\n", op_mnemonic);
     printf("  mov rax, rbx\n");
   }
+}
+
+bool ReadExpr(TokenReader& reader) {
+  return ReadAdditiveExpr(reader);
 }
 
 bool Parse(TokenReader& reader) {
