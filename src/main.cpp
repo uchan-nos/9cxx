@@ -9,6 +9,8 @@ enum class TokenType {
   kOpMinus,
   kOpMult,
   kOpDiv,
+  kOpEqual,
+  kOpNotEqual,
   kLParen,
   kRParen,
   kEOF,
@@ -21,6 +23,8 @@ const char* token_name_table[] = {
   "kOpMinus",
   "kOpMult",
   "kOpDiv",
+  "kOpEqual",
+  "kOpNotEqual",
   "kLParen",
   "kRParen",
   "kEOF",
@@ -100,6 +104,18 @@ Token ReadToken(SourceReader& reader) {
     return {TokenType::kOpMinus, 0};
   } else if (reader.Read('*')) {
     return {TokenType::kOpMult, 0};
+  } else if (reader.Read('=')) {
+    if (reader.Read('=')) {
+      return {TokenType::kOpEqual, 0};
+    } else {
+      return {TokenType::kUnknown, 0};
+    }
+  } else if (reader.Read('!')) {
+    if (reader.Read('=')) {
+      return {TokenType::kOpNotEqual, 0};
+    } else {
+      return {TokenType::kUnknown, 0};
+    }
   } else if (reader.Read('(')) {
     return {TokenType::kLParen, 0};
   } else if (reader.Read(')')) {
@@ -243,8 +259,32 @@ bool ReadAdditiveExpr(TokenReader& reader) {
   }
 }
 
+bool ReadEqualityExpr(TokenReader& reader) {
+  if (!ReadAdditiveExpr(reader)) {
+    return false;
+  }
+
+  while (true) {
+    const char* op_mnemonic;
+    if (reader.Read(TokenType::kOpEqual)) {
+      op_mnemonic = "sete";
+    } else if (reader.Read(TokenType::kOpNotEqual)) {
+      op_mnemonic = "setne";
+    } else {
+      return true;
+    }
+
+    printf("  push rax\n");
+    if (!ReadAdditiveExpr(reader)) {
+      return false;
+    }
+
+    printf("  pop rbx\n  cmp rax, rbx\n  xor rax, rax\n  %s al\n", op_mnemonic);
+  }
+}
+
 bool ReadExpr(TokenReader& reader) {
-  return ReadAdditiveExpr(reader);
+  return ReadEqualityExpr(reader);
 }
 
 bool Parse(TokenReader& reader) {
@@ -253,7 +293,7 @@ bool Parse(TokenReader& reader) {
 main:
 )");
 
-  if (!ReadAdditiveExpr(reader)) {
+  if (!ReadExpr(reader)) {
     return false;
   }
 
