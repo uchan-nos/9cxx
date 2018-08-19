@@ -11,14 +11,14 @@
 
 #define MAX_SOURCE_LENGTH (1024*1024)
 
-template <typename Head, typename... Tail>
-boost::format& BoostFormat(boost::format& format_string, Head head, Tail... tail) {
-  return BoostFormat(format_string % head, tail...);
-}
-
 template <typename T>
 boost::format& BoostFormat(boost::format& format_string, T head) {
   return format_string % head;
+}
+
+template <typename Head, typename... Tail>
+boost::format& BoostFormat(boost::format& format_string, Head head, Tail... tail) {
+  return BoostFormat(format_string % head, tail...);
 }
 
 class AssemblyLine {
@@ -42,13 +42,13 @@ class AssemblyLine {
 };
 
 struct VariableInfo {
-  size_t rbp_offset;
-  std::vector<size_t> rbp_offset_lines;
+  size_t rbp_offset; // [rbp - rbp_offset]
 };
 
 class CodeGenerateVisitor : public Visitor {
  public:
-  CodeGenerateVisitor(std::vector<AssemblyLine>& code) : code_{code} {
+  CodeGenerateVisitor(std::vector<AssemblyLine>& code)
+      : code_{code}, vars_{}, last_rbp_offset_{0} {
   }
 
   void Visit(CompoundStatement* stmt, bool lvalue) {
@@ -65,18 +65,9 @@ class CodeGenerateVisitor : public Visitor {
       n->Accept(this, lvalue);
     }
 
-    size_t stack_size = vars_.size() * 8;
+    size_t stack_size = (last_rbp_offset_ + 15) & ~static_cast<size_t>(15);
     code_[rsp_line].Format(stack_size);
     code_.push_back(AssemblyLine("  add rsp, %1%").Format(stack_size));
-
-    size_t rbp_offset = 8;
-    for (auto& [ name, info ] : vars_) {
-      info.rbp_offset = rbp_offset;
-      rbp_offset += 8;
-      for (auto i : info.rbp_offset_lines) {
-        code_[i].Format(info.rbp_offset);
-      }
-    }
   }
 
   void Visit(ExpressionStatement* stmt, bool lvalue) {
@@ -150,18 +141,25 @@ class CodeGenerateVisitor : public Visitor {
 
   void Visit(Identifier* exp, bool lvalue) {
     const char* op_mnemonic = "";
+    const auto& id_name = exp->value;
+    if (vars_.find(id_name) == vars_.end()) {
+      last_rbp_offset_ += 8;
+      vars_[id_name].rbp_offset = last_rbp_offset_;
+    }
+
     if (lvalue) {
       op_mnemonic = "lea";
     } else {
       op_mnemonic = "mov";
     }
-    vars_[exp->value].rbp_offset_lines.push_back(code_.size());
-    code_.push_back(AssemblyLine("  %1% rax, [rbp - %%1%%]").Format(op_mnemonic));
+    code_.push_back(AssemblyLine("  %1% rax, [rbp - %2%]").Format(
+          op_mnemonic, vars_[id_name].rbp_offset));
   }
 
  private:
   std::vector<AssemblyLine>& code_;
   std::map<std::string, VariableInfo> vars_;
+  size_t last_rbp_offset_;
 };
 
 class CodeGenerator {
