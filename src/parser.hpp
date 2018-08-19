@@ -34,31 +34,33 @@ class TokenReader {
 struct ASTNode;
 struct CompoundStatement;
 struct ExpressionStatement;
+struct AssignmentExpression;
 struct EqualityExpression;
 struct AdditiveExpression;
 struct MultiplicativeExpression;
 struct IntegerLiteral;
+struct Identifier;
 
 class Visitor {
  public:
   virtual ~Visitor() = default;
-  virtual void Visit(ASTNode* n) = 0;
-  virtual void Visit(CompoundStatement* stmt) = 0;
-  virtual void Visit(ExpressionStatement* stmt) = 0;
-  virtual void Visit(EqualityExpression* exp) = 0;
-  virtual void Visit(AdditiveExpression* exp) = 0;
-  virtual void Visit(MultiplicativeExpression* exp) = 0;
-  virtual void Visit(IntegerLiteral* exp) = 0;
+  virtual void Visit(CompoundStatement* stmt, bool lvalue) = 0;
+  virtual void Visit(ExpressionStatement* stmt, bool lvalue) = 0;
+  virtual void Visit(AssignmentExpression* exp, bool lvalue) = 0;
+  virtual void Visit(EqualityExpression* exp, bool lvalue) = 0;
+  virtual void Visit(AdditiveExpression* exp, bool lvalue) = 0;
+  virtual void Visit(MultiplicativeExpression* exp, bool lvalue) = 0;
+  virtual void Visit(IntegerLiteral* exp, bool lvalue) = 0;
+  virtual void Visit(Identifier* exp, bool lvalue) = 0;
 };
 
 struct ASTNode {
   virtual ~ASTNode() = default;
-  virtual void Accept(Visitor* visitor) = 0;
+  virtual void Accept(Visitor* visitor, bool lvalue) = 0;
 };
 
-void ASTNode::Accept(Visitor* visitor) {
-  visitor->Visit(this);
-}
+#define ACCEPT \
+  void Accept(Visitor* visitor, bool lvalue) { visitor->Visit(this, lvalue); }
 
 struct Statement : public ASTNode {
 };
@@ -69,55 +71,48 @@ struct Expression : public ASTNode {
 struct CompoundStatement : public Statement {
   std::vector<std::shared_ptr<Statement>> statements;
 
-  void Accept(Visitor* visitor) {
-    visitor->Visit(this);
-  }
+  ACCEPT
 };
 
 struct ExpressionStatement : public Statement {
   std::shared_ptr<Expression> exp;
 
-  void Accept(Visitor* visitor) {
-    visitor->Visit(this);
-  }
+  ACCEPT
 };
 
 struct BinaryExpression : public Expression {
   std::shared_ptr<Expression> lhs;
   TokenType op;
   std::shared_ptr<Expression> rhs;
+};
 
-  void Accept(Visitor* visitor) {
-    visitor->Visit(this);
-  }
+struct AssignmentExpression : public BinaryExpression {
+  ACCEPT
 };
 
 struct EqualityExpression : public BinaryExpression {
-  void Accept(Visitor* visitor) {
-    visitor->Visit(this);
-  }
+  ACCEPT
 };
 
 struct AdditiveExpression : public BinaryExpression {
-  void Accept(Visitor* visitor) {
-    visitor->Visit(this);
-  }
+  ACCEPT
 };
 
 struct MultiplicativeExpression : public BinaryExpression {
-  void Accept(Visitor* visitor) {
-    visitor->Visit(this);
-  }
+  ACCEPT
 };
 
 struct IntegerLiteral : public Expression {
   int value;
 
-  void Accept(Visitor* visitor) {
-    visitor->Visit(this);
-  }
+  ACCEPT
 };
 
+struct Identifier : public Expression {
+  std::string value;
+
+  ACCEPT
+};
 
 class Parser {
  public:
@@ -178,7 +173,29 @@ class Parser {
   }
 
   std::shared_ptr<Expression> ParseExpression() {
-    return ParseEqualityExpression();
+    return ParseAssignmentExpression();
+  }
+
+  std::shared_ptr<Expression> ParseAssignmentExpression() {
+    auto lhs = ParseEqualityExpression();
+
+    TokenType op;
+    if (reader_.Read(TokenType::kOpAssign)) {
+      op = TokenType::kOpAssign;
+    } else {
+      return lhs;
+    }
+
+    auto rhs = ParseAssignmentExpression();
+    if (!rhs) {
+      return {};
+    }
+
+    auto n = std::make_shared<AssignmentExpression>();
+    n->lhs = lhs;
+    n->op = op;
+    n->rhs = rhs;
+    return n;
   }
 
   std::shared_ptr<Expression> ParseEqualityExpression() {
@@ -264,8 +281,10 @@ class Parser {
                 << GetTokenName(token.type);
       return {};
     } else if (reader_.Current().type == TokenType::kId) {
-      reader_.Read();
-      return {};
+      auto token = reader_.Read();
+      auto n = std::make_shared<Identifier>();
+      n->value = token.string_value;
+      return n;
     }
     return ParseLiteral();
   }

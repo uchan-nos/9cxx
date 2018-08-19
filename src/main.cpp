@@ -41,31 +41,64 @@ class AssemblyLine {
   std::string line_;
 };
 
+struct VariableInfo {
+  size_t rbp_offset;
+  std::vector<size_t> rbp_offset_lines;
+};
+
 class CodeGenerateVisitor : public Visitor {
  public:
   CodeGenerateVisitor(std::vector<AssemblyLine>& code) : code_{code} {
   }
 
-  void Visit(ASTNode* n) {
-  }
-
-  void Visit(CompoundStatement* stmt) {
-    for (auto& n : stmt->statements) {
-      n->Accept(this);
-    }
+  void Visit(CompoundStatement* stmt, bool lvalue) {
     if (stmt->statements.empty()) {
       code_.push_back(AssemblyLine("  xor rax, rax"));
+      return;
+    }
+
+    code_.push_back(AssemblyLine("  mov rbp, rsp"));
+    code_.push_back(AssemblyLine("  sub rsp, %1%"));
+    size_t rsp_line = code_.size() - 1;
+
+    for (auto& n : stmt->statements) {
+      n->Accept(this, lvalue);
+    }
+
+    size_t stack_size = vars_.size() * 8;
+    code_[rsp_line].Format(stack_size);
+    code_.push_back(AssemblyLine("  add rsp, %1%").Format(stack_size));
+
+    size_t rbp_offset = 8;
+    for (auto& [ name, info ] : vars_) {
+      info.rbp_offset = rbp_offset;
+      rbp_offset += 8;
+      for (auto i : info.rbp_offset_lines) {
+        code_[i].Format(info.rbp_offset);
+      }
     }
   }
 
-  void Visit(ExpressionStatement* stmt) {
-    stmt->exp->Accept(this);
+  void Visit(ExpressionStatement* stmt, bool lvalue) {
+    stmt->exp->Accept(this, lvalue);
   }
 
-  void Visit(EqualityExpression* exp) {
-    exp->rhs->Accept(this);
+  void Visit(AssignmentExpression* exp, bool lvalue) {
+    exp->rhs->Accept(this, false);
     code_.push_back(AssemblyLine("  push rax"));
-    exp->lhs->Accept(this);
+    exp->lhs->Accept(this, true);
+    code_.push_back(AssemblyLine("  pop rbx"));
+
+    code_.push_back(AssemblyLine("  mov [rax], rbx"));
+    if (!lvalue) {
+      code_.push_back(AssemblyLine("  mov rax, rbx"));
+    }
+  }
+
+  void Visit(EqualityExpression* exp, bool lvalue) {
+    exp->rhs->Accept(this, lvalue);
+    code_.push_back(AssemblyLine("  push rax"));
+    exp->lhs->Accept(this, lvalue);
     code_.push_back(AssemblyLine("  pop rbx"));
 
     const char* op_mnemonic = "";
@@ -80,10 +113,10 @@ class CodeGenerateVisitor : public Visitor {
     code_.push_back(AssemblyLine("  mov al, bl"));
   }
 
-  void Visit(AdditiveExpression* exp) {
-    exp->rhs->Accept(this);
+  void Visit(AdditiveExpression* exp, bool lvalue) {
+    exp->rhs->Accept(this, lvalue);
     code_.push_back(AssemblyLine("  push rax"));
-    exp->lhs->Accept(this);
+    exp->lhs->Accept(this, lvalue);
     code_.push_back(AssemblyLine("  pop rbx"));
 
     const char* op_mnemonic = "";
@@ -95,10 +128,10 @@ class CodeGenerateVisitor : public Visitor {
     code_.push_back(AssemblyLine("  %1% eax, ebx").Format(op_mnemonic));
   }
 
-  void Visit(MultiplicativeExpression* exp) {
-    exp->rhs->Accept(this);
+  void Visit(MultiplicativeExpression* exp, bool lvalue) {
+    exp->rhs->Accept(this, lvalue);
     code_.push_back(AssemblyLine("  push rax"));
-    exp->lhs->Accept(this);
+    exp->lhs->Accept(this, lvalue);
     code_.push_back(AssemblyLine("  pop rbx"));
 
     const char* op_mnemonic = "";
@@ -111,12 +144,24 @@ class CodeGenerateVisitor : public Visitor {
     code_.push_back(AssemblyLine("  %1% ebx").Format(op_mnemonic));
   }
 
-  void Visit(IntegerLiteral* exp) {
+  void Visit(IntegerLiteral* exp, bool lvalue) {
     code_.push_back(AssemblyLine("  mov eax, %1%").Format(exp->value));
+  }
+
+  void Visit(Identifier* exp, bool lvalue) {
+    const char* op_mnemonic = "";
+    if (lvalue) {
+      op_mnemonic = "lea";
+    } else {
+      op_mnemonic = "mov";
+    }
+    vars_[exp->value].rbp_offset_lines.push_back(code_.size());
+    code_.push_back(AssemblyLine("  %1% rax, [rbp - %%1%%]").Format(op_mnemonic));
   }
 
  private:
   std::vector<AssemblyLine>& code_;
+  std::map<std::string, VariableInfo> vars_;
 };
 
 class CodeGenerator {
@@ -127,7 +172,7 @@ class CodeGenerator {
     code_.push_back(AssemblyLine("main:"));
 
     CodeGenerateVisitor visitor{code_};
-    ast_root->Accept(&visitor);
+    ast_root->Accept(&visitor, false);
 
     code_.push_back(AssemblyLine("  ret"));
   }
