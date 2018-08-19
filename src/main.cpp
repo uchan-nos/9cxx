@@ -116,10 +116,33 @@ ReadResult<size_t> Tokenize(SourceReader& reader, Token* tokens) {
   return {false, MAX_TOKENS};
 }
 
-bool Parse(Token* tokens) {
-  size_t i = 0;
-  if (tokens[i].type != TokenType::kInteger) {
-    fprintf(stderr, "Error in Parse: kInteger is expected. actual %s\n", GetTokenName(tokens[i].type));
+class TokenReader {
+ public:
+  TokenReader(const Token* tokens, size_t ntokens)
+      : src_{tokens}, read_pos_{0}, size_{ntokens} {
+  }
+
+  const Token& Read() {
+    const Token& token = src_[read_pos_];
+    if (read_pos_ < size_) {
+      ++read_pos_;
+    }
+    return token;
+  }
+
+ private:
+  const Token* const src_;
+  size_t read_pos_;
+  size_t size_;
+};
+
+size_t ParseMultiplicativeExpr(TokenReader& reader) {
+}
+
+bool Parse(TokenReader& reader) {
+  Token token = reader.Read();
+  if (token.type != TokenType::kInteger) {
+    fprintf(stderr, "Error in Parse: kInteger is expected. actual %s\n", GetTokenName(token.type));
     return false;
   }
 
@@ -127,19 +150,15 @@ bool Parse(Token* tokens) {
 .global main
 main:
 )");
-  printf("  mov eax, %d\n", tokens[i].int_value);
+  printf("  mov eax, %d\n", token.int_value);
 
-  ++i;
-  if (tokens[i].type == TokenType::kEOF) {
-    goto eof;
-  }
+  token = reader.Read();
+  while (token.type != TokenType::kEOF) {
+    const auto op_type = token.type;
 
-  while (tokens[i].type != TokenType::kEOF) {
-    const auto op_type = tokens[i].type;
-
-    ++i;
-    if (tokens[i].type != TokenType::kInteger) {
-      fprintf(stderr, "Error in Parse: kInteger is expected. actual %s\n", GetTokenName(tokens[i].type));
+    token = reader.Read();
+    if (token.type != TokenType::kInteger) {
+      fprintf(stderr, "Error in Parse: kInteger is expected. actual %s\n", GetTokenName(token.type));
       return false;
     }
 
@@ -148,21 +167,20 @@ main:
       case TokenType::kOpPlus: op_mnemonic = "add"; break;
       case TokenType::kOpMinus: op_mnemonic = "sub"; break;
       default:
-        fprintf(stderr, "Error in Parse: Unknown operator %s\n", GetTokenName(tokens[i].type));
+        fprintf(stderr, "Error in Parse: Unknown operator %s\n", GetTokenName(op_type));
         return false;
     }
-    printf("  %s eax, %d\n", op_mnemonic, tokens[i].int_value);
+    printf("  %s eax, %d\n", op_mnemonic, token.int_value);
 
-    ++i;
+    token = reader.Read();
   }
 
-eof:
-  if (tokens[i].type == TokenType::kEOF) {
+  if (token.type == TokenType::kEOF) {
     printf("  ret\n");
     return true;
   }
 
-  fprintf(stderr, "Error in Parse: kEOF is expected. actual %s\n", GetTokenName(tokens[i].type));
+  fprintf(stderr, "Error in Parse: kEOF is expected. actual %s\n", GetTokenName(token.type));
   return false;
 }
 
@@ -173,12 +191,15 @@ int main(void) {
   SourceReader src_reader{src};
 
   Token tokens[MAX_TOKENS];
-  if (auto result = Tokenize(src_reader, tokens); !result.success) {
+  auto result = Tokenize(src_reader, tokens);
+  if (!result.success) {
     fprintf(stderr, "Tokenize failed at token %lu\n", result.value);
     return -1;
   }
 
-  if (!Parse(tokens)) {
+  TokenReader token_reader{tokens, result.value};
+
+  if (!Parse(token_reader)) {
     fprintf(stderr, "Parse failed.\n");
     return -1;
   }
