@@ -32,6 +32,8 @@ class TokenReader {
 };
 
 struct ASTNode;
+struct CompoundStatement;
+struct ExpressionStatement;
 struct EqualityExpression;
 struct AdditiveExpression;
 struct MultiplicativeExpression;
@@ -41,6 +43,8 @@ class Visitor {
  public:
   virtual ~Visitor() = default;
   virtual void Visit(ASTNode* n) = 0;
+  virtual void Visit(CompoundStatement* stmt) = 0;
+  virtual void Visit(ExpressionStatement* stmt) = 0;
   virtual void Visit(EqualityExpression* exp) = 0;
   virtual void Visit(AdditiveExpression* exp) = 0;
   virtual void Visit(MultiplicativeExpression* exp) = 0;
@@ -56,13 +60,32 @@ void ASTNode::Accept(Visitor* visitor) {
   visitor->Visit(this);
 }
 
+struct Statement : public ASTNode {
+};
+
 struct Expression : public ASTNode {
 };
 
+struct CompoundStatement : public Statement {
+  std::vector<std::shared_ptr<Statement>> statements;
+
+  void Accept(Visitor* visitor) {
+    visitor->Visit(this);
+  }
+};
+
+struct ExpressionStatement : public Statement {
+  std::shared_ptr<Expression> exp;
+
+  void Accept(Visitor* visitor) {
+    visitor->Visit(this);
+  }
+};
+
 struct BinaryExpression : public Expression {
-  std::shared_ptr<ASTNode> lhs;
+  std::shared_ptr<Expression> lhs;
   TokenType op;
-  std::shared_ptr<ASTNode> rhs;
+  std::shared_ptr<Expression> rhs;
 
   void Accept(Visitor* visitor) {
     visitor->Visit(this);
@@ -102,7 +125,7 @@ class Parser {
   }
 
   bool Parse() {
-    auto ast = ParseExpression();
+    auto ast = ParseStatement();
     ast_root_ = ast;
     return reader_.Read(TokenType::kEOF);
   }
@@ -114,6 +137,45 @@ class Parser {
  private:
   TokenReader& reader_;
   std::shared_ptr<ASTNode> ast_root_;
+
+  std::shared_ptr<Statement> ParseStatement() {
+    if (reader_.Current().type == TokenType::kLBrace) {
+      return ParseCompoundStatement();
+    }
+    return ParseExpressionStatement();
+  }
+
+  std::shared_ptr<Statement> ParseCompoundStatement() {
+    if (!reader_.Read(TokenType::kLBrace)) {
+      return {};
+    }
+
+    std::vector<std::shared_ptr<Statement>> statements;
+    auto stmt = ParseStatement();
+    while (stmt) {
+      statements.push_back(stmt);
+      stmt = ParseStatement();
+    }
+
+    if (!reader_.Read(TokenType::kRBrace)) {
+      return {};
+    }
+
+    auto n = std::make_shared<CompoundStatement>();
+    n->statements = statements;
+    return n;
+  }
+
+  std::shared_ptr<Statement> ParseExpressionStatement() {
+    auto exp = ParseExpression();
+    if (!exp || !reader_.Read(TokenType::kSemicolon)) {
+      return {};
+    }
+
+    auto n = std::make_shared<ExpressionStatement>();
+    n->exp = exp;
+    return n;
+  }
 
   std::shared_ptr<Expression> ParseExpression() {
     return ParseEqualityExpression();

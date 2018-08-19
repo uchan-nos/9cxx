@@ -49,6 +49,19 @@ class CodeGenerateVisitor : public Visitor {
   void Visit(ASTNode* n) {
   }
 
+  void Visit(CompoundStatement* stmt) {
+    for (auto& n : stmt->statements) {
+      n->Accept(this);
+    }
+    if (stmt->statements.empty()) {
+      code_.push_back(AssemblyLine("  xor rax, rax"));
+    }
+  }
+
+  void Visit(ExpressionStatement* stmt) {
+    stmt->exp->Accept(this);
+  }
+
   void Visit(EqualityExpression* exp) {
     exp->rhs->Accept(this);
     code_.push_back(AssemblyLine("  push rax"));
