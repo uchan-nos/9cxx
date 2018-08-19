@@ -38,6 +38,8 @@ struct AssignmentExpression;
 struct EqualityExpression;
 struct AdditiveExpression;
 struct MultiplicativeExpression;
+struct FunctionCallExpression;
+struct UnaryExpression;
 struct IntegerLiteral;
 struct Identifier;
 
@@ -50,6 +52,7 @@ class Visitor {
   virtual void Visit(EqualityExpression* exp, bool lvalue) = 0;
   virtual void Visit(AdditiveExpression* exp, bool lvalue) = 0;
   virtual void Visit(MultiplicativeExpression* exp, bool lvalue) = 0;
+  virtual void Visit(FunctionCallExpression* exp, bool lvalue) = 0;
   virtual void Visit(IntegerLiteral* exp, bool lvalue) = 0;
   virtual void Visit(Identifier* exp, bool lvalue) = 0;
 };
@@ -99,6 +102,13 @@ struct AdditiveExpression : public BinaryExpression {
 };
 
 struct MultiplicativeExpression : public BinaryExpression {
+  ACCEPT
+};
+
+struct FunctionCallExpression : public Expression {
+  std::shared_ptr<Expression> name;
+  std::shared_ptr<Expression> args;
+
   ACCEPT
 };
 
@@ -247,7 +257,7 @@ class Parser {
   }
 
   std::shared_ptr<Expression> ParseMultiplicativeExpression() {
-    auto lhs = ParsePrimaryExpression();
+    auto lhs = ParsePostfixExpression();
 
     TokenType op;
     if (reader_.Read(TokenType::kOpMult)) {
@@ -268,6 +278,24 @@ class Parser {
     n->op = op;
     n->rhs = rhs;
     return n;
+  }
+
+  std::shared_ptr<Expression> ParsePostfixExpression() {
+    auto main = ParsePrimaryExpression();
+
+    if (reader_.Read(TokenType::kLParen)) {
+      if (reader_.Read(TokenType::kRParen)) {
+        auto n = std::make_shared<FunctionCallExpression>();
+        n->name = main;
+        return n;
+      } else {
+        return {};
+      }
+    } else {
+      return main;
+    }
+
+    return {};
   }
 
   std::shared_ptr<Expression> ParsePrimaryExpression() {

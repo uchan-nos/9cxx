@@ -37,7 +37,8 @@ then
     exit 0
 fi
 
-clang++ $(dirname $0)/testcase.s -o $(dirname $0)/testcase.out
+as $(dirname $0)/testcase.s -o $(dirname $0)/testcase.o
+clang++ $(dirname $0)/testcase.o $(dirname $0)/supplement.cpp -o $(dirname $0)/testcase.out
 
 $(dirname $0)/testcase.out > $(dirname $0)/actual.out
 ACTUAL_CODE=$?

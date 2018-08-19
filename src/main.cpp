@@ -41,14 +41,21 @@ class AssemblyLine {
   std::string line_;
 };
 
-struct VariableInfo {
+enum class IdType {
+  kUnknown,
+  kLocalVariable,
+  kGlobal,
+};
+
+struct IdInfo {
+  IdType type;
   size_t rbp_offset; // [rbp - rbp_offset]
 };
 
 class CodeGenerateVisitor : public Visitor {
  public:
   CodeGenerateVisitor(std::vector<AssemblyLine>& code)
-      : code_{code}, vars_{}, last_rbp_offset_{0} {
+      : code_{code}, ids_{}, last_rbp_offset_{0} {
   }
 
   void Visit(CompoundStatement* stmt, bool lvalue) {
@@ -75,6 +82,15 @@ class CodeGenerateVisitor : public Visitor {
   }
 
   void Visit(AssignmentExpression* exp, bool lvalue) {
+    if (auto n = std::dynamic_pointer_cast<Identifier>(exp->lhs)) {
+      const auto& id_name = n->value;
+      if (ids_.find(id_name) == ids_.end()) {
+        last_rbp_offset_ += 8;
+        ids_[id_name].type = IdType::kLocalVariable;
+        ids_[id_name].rbp_offset = last_rbp_offset_;
+      }
+    }
+
     exp->rhs->Accept(this, false);
     code_.push_back(AssemblyLine("  push rax"));
     exp->lhs->Accept(this, true);
@@ -135,6 +151,18 @@ class CodeGenerateVisitor : public Visitor {
     code_.push_back(AssemblyLine("  %1% ebx").Format(op_mnemonic));
   }
 
+  void Visit(FunctionCallExpression* exp, bool lvalue) {
+    if (auto n = std::dynamic_pointer_cast<Identifier>(exp->name)) {
+      const auto& id_name = n->value;
+      if (ids_.find(id_name) == ids_.end()) {
+        ids_[id_name].type = IdType::kGlobal;
+      }
+    }
+
+    exp->name->Accept(this, true);
+    code_.push_back(AssemblyLine("  call rax"));
+  }
+
   void Visit(IntegerLiteral* exp, bool lvalue) {
     code_.push_back(AssemblyLine("  mov eax, %1%").Format(exp->value));
   }
@@ -142,23 +170,24 @@ class CodeGenerateVisitor : public Visitor {
   void Visit(Identifier* exp, bool lvalue) {
     const char* op_mnemonic = "";
     const auto& id_name = exp->value;
-    if (vars_.find(id_name) == vars_.end()) {
-      last_rbp_offset_ += 8;
-      vars_[id_name].rbp_offset = last_rbp_offset_;
-    }
 
     if (lvalue) {
       op_mnemonic = "lea";
     } else {
       op_mnemonic = "mov";
     }
-    code_.push_back(AssemblyLine("  %1% rax, [rbp - %2%]").Format(
-          op_mnemonic, vars_[id_name].rbp_offset));
+
+    if (ids_[id_name].type == IdType::kLocalVariable) {
+      code_.push_back(AssemblyLine("  %1% rax, [rbp - %2%]").Format(
+            op_mnemonic, ids_[id_name].rbp_offset));
+    } else {
+      code_.push_back(AssemblyLine("  mov rax, offset %1%").Format(id_name));
+    }
   }
 
  private:
   std::vector<AssemblyLine>& code_;
-  std::map<std::string, VariableInfo> vars_;
+  std::map<std::string, IdInfo> ids_;
   size_t last_rbp_offset_;
 };
 
