@@ -7,6 +7,8 @@ enum class TokenType {
   kInteger,
   kOpPlus,
   kOpMinus,
+  kOpMult,
+  kOpDiv,
   kEOF,
   kUnknown,
 };
@@ -15,6 +17,8 @@ const char* token_name_table[] = {
   "kInteger",
   "kOpPlus",
   "kOpMinus",
+  "kOpMult",
+  "kOpDiv",
   "kEOF",
   "kUnknown",
 };
@@ -90,6 +94,10 @@ Token ReadToken(SourceReader& reader) {
     return {TokenType::kOpPlus, 0};
   } else if (reader.Read('-')) {
     return {TokenType::kOpMinus, 0};
+  } else if (reader.Read('*')) {
+    return {TokenType::kOpMult, 0};
+  } else if (reader.Read('/')) {
+    return {TokenType::kOpDiv, 0};
   } else if (auto result = ReadInteger(reader); result.success) {
     return {TokenType::kInteger, result.value};
   } else if (reader.Read('\0')) {
@@ -130,51 +138,92 @@ class TokenReader {
     return token;
   }
 
+  const Token& Current() const {
+    return src_[read_pos_];
+  }
+
+  bool Read(TokenType expected) {
+    if (src_[read_pos_].type == expected) {
+      if (read_pos_ < size_) {
+        ++read_pos_;
+      }
+      return true;
+    }
+    return false;
+  }
+
  private:
   const Token* const src_;
   size_t read_pos_;
   size_t size_;
 };
 
-size_t ParseMultiplicativeExpr(TokenReader& reader) {
-}
-
-bool Parse(TokenReader& reader) {
+bool ReadMultiplicativeExpr(TokenReader& reader) {
   Token token = reader.Read();
   if (token.type != TokenType::kInteger) {
-    fprintf(stderr, "Error in Parse: kInteger is expected. actual %s\n", GetTokenName(token.type));
+    fprintf(stderr, "Error in ReadMultilicativeExpr: kInteger is expected. actual %s\n", GetTokenName(token.type));
     return false;
   }
 
+  printf("  mov eax, %d\n", token.int_value);
+
+  while (true) {
+    const char* op_mnemonic;
+    if (reader.Read(TokenType::kOpMult)) {
+      op_mnemonic = "mul";
+    } else if (reader.Read(TokenType::kOpDiv)) {
+      op_mnemonic = "div";
+    } else {
+      return true;
+    }
+
+    token = reader.Read();
+    if (token.type != TokenType::kInteger) {
+      fprintf(stderr, "Error in ReadMultiplicativeExpr: kInteger is expected. actual %s\n", GetTokenName(token.type));
+      return false;
+    }
+
+    printf("xor rdx,rdx\n  mov ebx, %d\n  %s ebx\n", token.int_value, op_mnemonic);
+  }
+}
+
+bool ReadAdditiveExpr(TokenReader& reader) {
+  if (!ReadMultiplicativeExpr(reader)) {
+    return false;
+  }
+
+  while (true) {
+    const char* op_mnemonic;
+    if (reader.Read(TokenType::kOpPlus)) {
+      op_mnemonic = "add";
+    } else if (reader.Read(TokenType::kOpMinus)) {
+      op_mnemonic = "sub";
+    } else {
+      return true;
+    }
+
+    printf("  push rax\n");
+    if (!ReadMultiplicativeExpr(reader)) {
+      return false;
+    }
+
+    printf("  pop rbx\n");
+    printf("  %s rbx, rax\n", op_mnemonic);
+    printf("  mov rax, rbx\n");
+  }
+}
+
+bool Parse(TokenReader& reader) {
   printf(R"(.intel_syntax noprefix
 .global main
 main:
 )");
-  printf("  mov eax, %d\n", token.int_value);
 
-  token = reader.Read();
-  while (token.type != TokenType::kEOF) {
-    const auto op_type = token.type;
-
-    token = reader.Read();
-    if (token.type != TokenType::kInteger) {
-      fprintf(stderr, "Error in Parse: kInteger is expected. actual %s\n", GetTokenName(token.type));
-      return false;
-    }
-
-    const char* op_mnemonic;
-    switch (op_type) {
-      case TokenType::kOpPlus: op_mnemonic = "add"; break;
-      case TokenType::kOpMinus: op_mnemonic = "sub"; break;
-      default:
-        fprintf(stderr, "Error in Parse: Unknown operator %s\n", GetTokenName(op_type));
-        return false;
-    }
-    printf("  %s eax, %d\n", op_mnemonic, token.int_value);
-
-    token = reader.Read();
+  if (!ReadAdditiveExpr(reader)) {
+    return false;
   }
 
+  auto token = reader.Current();
   if (token.type == TokenType::kEOF) {
     printf("  ret\n");
     return true;

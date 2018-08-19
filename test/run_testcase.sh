@@ -20,9 +20,9 @@ fi
 
 if [ "$QUIET" = "y" ]
 then
-    echo "$TESTCASE" | $CXX 2>/dev/null > $(dirname $0)/"$TESTCASE.s"
+    echo "$TESTCASE" | $CXX 2>/dev/null > $(dirname $0)/testcase.s
 else
-    echo "$TESTCASE" | $CXX > $(dirname $0)/"$TESTCASE.s"
+    echo "$TESTCASE" | $CXX > $(dirname $0)/testcase.s
 fi
 COMPILE_ACTUAL_CODE=$?
 if [ $COMPILE_ACTUAL_CODE -ne $COMPILE_CODE ]
@@ -31,10 +31,15 @@ then
     echo "  Actual compile code $COMPILE_ACTUAL_CODE, expected $COMPILE_CODE"
     exit 255
 fi
+if [ $COMPILE_ACTUAL_CODE -ne 0 ] && [ $COMPILE_ACTUAL_CODE -eq $COMPILE_CODE ]
+then
+    echo "[  OK  ] testcase $TESTCASE"
+    exit 0
+fi
 
-clang++ $(dirname $0)/"$TESTCASE.s" -o $(dirname $0)/a.out
+clang++ $(dirname $0)/testcase.s -o $(dirname $0)/testcase.out
 
-$(dirname $0)/a.out > $(dirname $0)/actual.out
+$(dirname $0)/testcase.out > $(dirname $0)/actual.out
 ACTUAL_CODE=$?
 
 if [ ! -f "$EXPECTED_OUT" ]
