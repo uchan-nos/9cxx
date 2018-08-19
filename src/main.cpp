@@ -6,6 +6,7 @@
 enum class TokenType {
   kInteger,
   kOpPlus,
+  kOpMinus,
   kEOF,
   kUnknown,
 };
@@ -13,6 +14,7 @@ enum class TokenType {
 const char* token_name_table[] = {
   "kInteger",
   "kOpPlus",
+  "kOpMinus",
   "kEOF",
   "kUnknown",
 };
@@ -86,6 +88,8 @@ ReadResult<int> ReadInteger(SourceReader& reader) {
 Token ReadToken(SourceReader& reader) {
   if (reader.Read('+')) {
     return {TokenType::kOpPlus, 0};
+  } else if (reader.Read('-')) {
+    return {TokenType::kOpMinus, 0};
   } else if (auto result = ReadInteger(reader); result.success) {
     return {TokenType::kInteger, result.value};
   } else if (reader.Read('\0')) {
@@ -128,19 +132,27 @@ main:
   ++i;
   if (tokens[i].type == TokenType::kEOF) {
     goto eof;
-  } else if (tokens[i].type != TokenType::kOpPlus) {
-    fprintf(stderr, "Error in Parse: kOpPlus is expected. actual %s\n", GetTokenName(tokens[i].type));
-    return false;
   }
 
-  ++i;
-  if (tokens[i].type != TokenType::kInteger) {
-    fprintf(stderr, "Error in Parse: kInteger is expected. actual %s\n", GetTokenName(tokens[i].type));
-    return false;
-  }
+  while (tokens[i].type != TokenType::kEOF) {
+    const auto op_type = tokens[i].type;
 
-  while (tokens[i].type == TokenType::kInteger) {
-    printf("  add eax, %d\n", tokens[i].int_value);
+    ++i;
+    if (tokens[i].type != TokenType::kInteger) {
+      fprintf(stderr, "Error in Parse: kInteger is expected. actual %s\n", GetTokenName(tokens[i].type));
+      return false;
+    }
+
+    const char* op_mnemonic;
+    switch (op_type) {
+      case TokenType::kOpPlus: op_mnemonic = "add"; break;
+      case TokenType::kOpMinus: op_mnemonic = "sub"; break;
+      default:
+        fprintf(stderr, "Error in Parse: Unknown operator %s\n", GetTokenName(tokens[i].type));
+        return false;
+    }
+    printf("  %s eax, %d\n", op_mnemonic, tokens[i].int_value);
+
     ++i;
   }
 

@@ -29,7 +29,7 @@ if [ $COMPILE_ACTUAL_CODE -ne $COMPILE_CODE ]
 then
     echo "[FAILED] testcase $TESTCASE"
     echo "  Actual compile code $COMPILE_ACTUAL_CODE, expected $COMPILE_CODE"
-    exit -1
+    exit 255
 fi
 
 clang++ $(dirname $0)/"$TESTCASE.s" -o $(dirname $0)/a.out
@@ -62,7 +62,7 @@ else
     echo "[FAILED] testcase $TESTCASE"
     echo "  Actual code $ACTUAL_CODE, expected $EXPECTED_CODE"
     echo "  Actual out $(cat $(dirname $0)/actual.out), expected $EXPECTED_OUT"
-    exit -1
+    exit 255
 fi
 
 exit 0
