@@ -13,6 +13,9 @@ enum class TokenType {
   kOpNotEqual,
   kLParen,
   kRParen,
+  kLBrace,
+  kRBrace,
+  kSemicolon,
   kEOF,
   kUnknown,
 };
@@ -27,6 +30,9 @@ const char* token_name_table[] = {
   "kOpNotEqual",
   "kLParen",
   "kRParen",
+  "kLBrace",
+  "kRBrace",
+  "kSemicolon",
   "kEOF",
   "kUnknown",
 };
@@ -104,6 +110,8 @@ Token ReadToken(SourceReader& reader) {
     return {TokenType::kOpMinus, 0};
   } else if (reader.Read('*')) {
     return {TokenType::kOpMult, 0};
+  } else if (reader.Read('/')) {
+    return {TokenType::kOpDiv, 0};
   } else if (reader.Read('=')) {
     if (reader.Read('=')) {
       return {TokenType::kOpEqual, 0};
@@ -120,8 +128,12 @@ Token ReadToken(SourceReader& reader) {
     return {TokenType::kLParen, 0};
   } else if (reader.Read(')')) {
     return {TokenType::kRParen, 0};
-  } else if (reader.Read('/')) {
-    return {TokenType::kOpDiv, 0};
+  } else if (reader.Read('{')) {
+    return {TokenType::kLBrace, 0};
+  } else if (reader.Read('}')) {
+    return {TokenType::kRBrace, 0};
+  } else if (reader.Read(';')) {
+    return {TokenType::kSemicolon, 0};
   } else if (auto result = ReadInteger(reader); result.success) {
     return {TokenType::kInteger, result.value};
   } else if (reader.Read('\0')) {
@@ -287,13 +299,41 @@ bool ReadExpr(TokenReader& reader) {
   return ReadEqualityExpr(reader);
 }
 
+bool ReadExpressionStatement(TokenReader& reader) {
+  if (!ReadExpr(reader)) {
+    return false;
+  }
+
+  Token token = reader.Read();
+  if (token.type != TokenType::kSemicolon) {
+    fprintf(stderr, "Error in ReadExpressionStatement: kSemicolon is expected. actual %s\n", GetTokenName(token.type));
+    return false;
+  }
+
+  return true;
+}
+
+bool ReadStatement(TokenReader& reader) {
+  printf("  xor rax, rax\n");
+  if (reader.Read(TokenType::kLBrace)) {
+    while (!reader.Read(TokenType::kRBrace)) {
+      if (!ReadStatement(reader)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  return ReadExpressionStatement(reader);
+}
+
 bool Parse(TokenReader& reader) {
   printf(R"(.intel_syntax noprefix
 .global main
 main:
 )");
 
-  if (!ReadExpr(reader)) {
+  if (!ReadStatement(reader)) {
     return false;
   }
 
