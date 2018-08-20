@@ -185,6 +185,10 @@ class CodeGenerateVisitor : public Visitor {
     }
   }
 
+  void Visit(SimpleDeclaration* decl) {
+    // pass
+  }
+
  private:
   std::vector<AssemblyLine>& code_;
   std::map<std::string, IdInfo> ids_;

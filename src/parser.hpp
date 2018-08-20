@@ -42,6 +42,8 @@ struct FunctionCallExpression;
 struct UnaryExpression;
 struct IntegerLiteral;
 struct Identifier;
+struct Declaration;
+struct SimpleDeclaration;
 
 class Visitor {
  public:
@@ -55,6 +57,7 @@ class Visitor {
   virtual void Visit(FunctionCallExpression* exp, bool lvalue) = 0;
   virtual void Visit(IntegerLiteral* exp, bool lvalue) = 0;
   virtual void Visit(Identifier* exp, bool lvalue) = 0;
+  virtual void Visit(SimpleDeclaration* decl) = 0;
 };
 
 struct ASTNode {
@@ -122,6 +125,50 @@ struct Identifier : public Expression {
   std::string value;
 
   ACCEPT
+};
+
+struct Declaration : public ASTNode {
+};
+
+struct DeclSpecifier : public ASTNode {
+};
+
+struct SimpleTypeSpecifier : public DeclSpecifier {
+  std::string type;
+};
+
+struct SimpleDeclaration : public Declaration {
+  std::vector<std::shared_ptr<DeclSpecifier>> specs;
+  std::vector<std::shared_ptr<InitDeclarator>> dtors;;
+  ACCEPT
+};
+
+struct InitDeclarator : public ASTNode {
+  std::shared_ptr<Declarator> dtor;
+  std::shared_ptr<Initializer> init;
+};
+
+struct Declarator : public ASTNode {
+};
+
+struct NoPtrDeclarator : public Declarator {
+  std::shared_ptr<Identifier> id;
+};
+
+struct Initializer : public ASTNode {
+};
+
+struct EqualInitializer : public Initializer {
+  std::shared_ptr<InitializerClause> clause;
+};
+
+struct InitializerClause : public ASTNode {
+  std::shared_ptr<AssignmentExpression> assign;
+  std::shared_ptr<BracedInitList> braced;
+};
+
+struct BracedInitList : public ASTNode {
+  std::vector<std::shared_ptr<InitializerClause>> clauses;
 };
 
 class Parser {
