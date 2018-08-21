@@ -11,6 +11,8 @@
 
 #define MAX_SOURCE_LENGTH (1024*1024)
 
+bool leading_underscore = true;
+
 template <typename T>
 boost::format& BoostFormat(boost::format& format_string, T head) {
   return format_string % head;
@@ -181,7 +183,9 @@ class CodeGenerateVisitor : public Visitor {
       code_.push_back(AssemblyLine("  %1% rax, [rbp - %2%]").Format(
             op_mnemonic, ids_[id_name].rbp_offset));
     } else {
-      code_.push_back(AssemblyLine("  mov rax, offset %1%").Format(id_name));
+      auto extern_name = leading_underscore ? '_' + id_name : id_name;
+      code_.push_back(AssemblyLine("  extern %1%").Format(extern_name));
+      code_.push_back(AssemblyLine("  mov rax, %1%").Format(extern_name));
     }
   }
 
@@ -198,8 +202,7 @@ class CodeGenerateVisitor : public Visitor {
 class CodeGenerator {
  public:
   void Generate(std::shared_ptr<ASTNode> ast_root) {
-    code_.push_back(AssemblyLine(".intel_syntax noprefix"));
-    code_.push_back(AssemblyLine(".global main"));
+    code_.push_back(AssemblyLine("global main"));
     code_.push_back(AssemblyLine("main:"));
 
     CodeGenerateVisitor visitor{code_};
