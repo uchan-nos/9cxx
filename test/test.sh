@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh -e
 
 RUNNER=$(dirname $0)/run_testcase.sh
 export QUIET=y
@@ -24,3 +24,5 @@ $RUNNER "{}" 0 0 ""
 $RUNNER "{1+1;2+3;}" 0 5 ""
 $RUNNER "{int a,b;a=1;b=2;a+b*3;}" 0 7 ""
 $RUNNER "{int f42();f42();}" 0 42 ""
+$RUNNER "{int v,add();v=2;add(3,v*4);}" 0 11 ""
+$RUNNER "{int add();add(add(1,1),add(2,3));}" 0 7 ""

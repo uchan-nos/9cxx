@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <array>
 #include <boost/format.hpp>
 
 #include "tokenizer.hpp"
@@ -55,6 +56,15 @@ struct IdInfo {
   size_t rbp_offset; // [rbp - rbp_offset]
 };
 
+const std::array<std::string, 6> kParamRegList{
+  "rdi",
+  "rsi",
+  "rdx",
+  "rcx",
+  "r8",
+  "r9",
+};
+
 class BaseVisitor : public Visitor {
  public:
   void Visit(CompoundStatement* stmt, bool lvalue) {}
@@ -71,7 +81,7 @@ class BaseVisitor : public Visitor {
   void Visit(SimpleTypeSpecifier* spec, bool lvalue) {}
   void Visit(InitDeclarator* dtor, bool lvalue) {
     dtor->dtor->Accept(this, lvalue);
-    dtor->init->Accept(this, lvalue);
+    if (dtor->init) dtor->init->Accept(this, lvalue);
   }
   void Visit(EqualInitializer* init, bool lvalue) {
     init->clause->Accept(this, lvalue);
@@ -259,6 +269,15 @@ class CodeGenerateVisitor : public BaseVisitor {
       }
     }
 
+    for (size_t i = 0; i < exp->args.size(); ++i) {
+      // reverse
+      exp->args[exp->args.size() - i - 1]->Accept(this, false);
+      code_.push_back(AssemblyLine("  push rax"));
+    }
+    for (size_t i = 0; i < exp->args.size(); ++i) {
+      if (i == kParamRegList.size()) break;
+      code_.push_back(AssemblyLine("  pop %1%").Format(kParamRegList[i]));
+    }
     exp->name->Accept(this, true);
     code_.push_back(AssemblyLine("  call rax"));
   }
@@ -318,6 +337,11 @@ class CodeGenerateVisitor : public BaseVisitor {
   }
 
   void Visit(InitializerClause* clause, bool lvalue) {
+    if (clause->assign) {
+      clause->assign->Accept(this, lvalue);
+    } else {
+      clause->braced->Accept(this, lvalue);
+    }
   }
 
   void Visit(NoPtrDeclarator* dtor, bool lvalue) {

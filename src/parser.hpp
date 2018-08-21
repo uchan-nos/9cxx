@@ -139,7 +139,7 @@ struct MultiplicativeExpression : public BinaryExpression {
 
 struct FunctionCallExpression : public Expression {
   std::shared_ptr<Expression> name;
-  std::shared_ptr<Expression> args;
+  std::vector<std::shared_ptr<InitializerClause>> args;
 
   ACCEPT
 };
@@ -404,13 +404,19 @@ class Parser {
     auto main = ParsePrimaryExpression();
 
     if (reader_.Read(TokenType::kLParen)) {
-      if (reader_.Read(TokenType::kRParen)) {
-        auto n = std::make_shared<FunctionCallExpression>();
-        n->name = main;
-        return n;
-      } else {
-        return {};
+      auto n = std::make_shared<FunctionCallExpression>();
+      n->name = main;
+      auto arg = ParseInitializerClause();
+      if (arg) n->args.push_back(arg);
+      while (reader_.Read(TokenType::kComma)) {
+        arg = ParseInitializerClause();
+        if (!arg) return {};
+        n->args.push_back(arg);
       }
+      if (reader_.Read(TokenType::kRParen)) {
+        return n;
+      }
+      return {};
     } else {
       return main;
     }
@@ -473,6 +479,7 @@ class Parser {
       if (!dtor) return {};
       n->dtors.push_back(dtor);
     }
+    std::cerr << "ParseSimpleDeclaration: size of dtors = " << n->dtors.size() << std::endl;
     return n;
   }
 
@@ -498,13 +505,9 @@ class Parser {
     if (!dtor) {
       return {};
     }
-    auto init = ParseInitializer();
-    if (!init) {
-      return {};
-    }
     auto n = std::make_shared<InitDeclarator>();
     n->dtor = dtor;
-    n->init = init;
+    n->init = ParseInitializer();;
     return n;
   }
 
@@ -524,9 +527,13 @@ class Parser {
 
   std::shared_ptr<InitializerClause> ParseInitializerClause() {
     auto assign = ParseAssignmentExpression();
+    std::cerr << "parsed assign: " << (bool)assign << std::endl;
     std::shared_ptr<BracedInitList> braced;
     if (!assign) {
       //braced = ParseBracedInitList;
+    }
+    if (!assign && !braced) {
+      return {};
     }
     auto n = std::make_shared<InitializerClause>();
     n->assign = assign;
