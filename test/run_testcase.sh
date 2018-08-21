@@ -13,6 +13,16 @@ EXPECTED_OUT="$4"
 
 CXX=$(dirname $0)/../src/9cxx
 
+FORMAT=elf64
+CLANGFLAGS=""
+CXXFLAGS="-fno-leading-underscore"
+if [ "$(uname -s)" = "Darwin" ]
+then
+    FORMAT=macho64
+    CLANGFLAGS="-Wl,-no_pie"
+    CXXFLAGS=""
+fi
+
 if [ -f "$TESTCASE.cpp" ]
 then
     TESTCASE=$(cat "$TESTCASE.cpp")
@@ -20,9 +30,9 @@ fi
 
 if [ "$QUIET" = "y" ]
 then
-    echo "$TESTCASE" | $CXX 2>/dev/null > $(dirname $0)/testcase.s
+    echo "$TESTCASE" | $CXX $CXXFLAGS 2>/dev/null > $(dirname $0)/testcase.s
 else
-    echo "$TESTCASE" | $CXX > $(dirname $0)/testcase.s
+    echo "$TESTCASE" | $CXX $CXXFLAGS > $(dirname $0)/testcase.s
 fi
 COMPILE_ACTUAL_CODE=$?
 if [ $COMPILE_ACTUAL_CODE -ne $COMPILE_CODE ]
@@ -36,16 +46,8 @@ then
     echo "[  OK  ] testcase $TESTCASE"
     exit 0
 fi
-
-FORMAT=elf64
-PIE=""
-if [ "$(uname -s)" = "Darwin" ]
-then
-    FORMAT=macho64
-    PIE="-Wl,-no_pie"
-fi
 nasm $(dirname $0)/testcase.s -f $FORMAT -o $(dirname $0)/testcase.o
-clang++ $(dirname $0)/testcase.o $(dirname $0)/supplement.cpp -Wl,-e -Wl,main $PIE -o $(dirname $0)/testcase.out
+clang++ $(dirname $0)/testcase.o $(dirname $0)/supplement.cpp $CLANGFLAGS -o $(dirname $0)/testcase.out
 
 $(dirname $0)/testcase.out > $(dirname $0)/actual.out
 ACTUAL_CODE=$?

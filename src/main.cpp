@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstring>
 #include <iostream>
 #include <cctype>
 #include <string>
@@ -356,8 +357,9 @@ class CodeGenerateVisitor : public BaseVisitor {
 class CodeGenerator {
  public:
   void Generate(std::shared_ptr<ASTNode> ast_root) {
-    code_.push_back(AssemblyLine("global main"));
-    code_.push_back(AssemblyLine("main:"));
+    const char* main_name = leading_underscore ? "_main" : "main";
+    code_.push_back(AssemblyLine("global %1%").Format(main_name));
+    code_.push_back(AssemblyLine("%1%:").Format(main_name));
 
     CodeGenerateVisitor visitor{code_};
     ast_root->Accept(&visitor, false);
@@ -373,7 +375,13 @@ class CodeGenerator {
   std::vector<AssemblyLine> code_;
 };
 
-int main(void) {
+int main(int argc, char** argv) {
+  for (int i = 0; i < argc; ++i) {
+    if (strcmp("-fno-leading-underscore", argv[i]) == 0) {
+      leading_underscore = false;
+    }
+  }
+
   char src[MAX_SOURCE_LENGTH];
   fread(src, MAX_SOURCE_LENGTH, 1, stdin);
 
