@@ -11,6 +11,7 @@
 
 #include "tokenizer.hpp"
 #include "parser.hpp"
+#include "ast.hpp"
 
 #define MAX_SOURCE_LENGTH (1024*1024)
 
@@ -442,14 +443,15 @@ int main(int argc, char** argv) {
   }
 
   TokenReader token_reader{tokens};
-  Parser parser{token_reader};
-  if (!parser.Parse() || !parser.GetAST()) {
+
+  auto ast = Parse(token_reader);
+  if (!ast) {
     fprintf(stderr, "Parse error\n");
     return -1;
   }
 
   CodeGenerator generator;
-  generator.Generate(parser.GetAST());
+  generator.Generate(ast);
   for (auto& line : generator.GetCode()) {
     std::cout << line.ToString() << std::endl;
   }

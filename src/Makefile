@@ -1,4 +1,4 @@
-OBJS = main.o
+OBJS = main.o parser.o tokenizer.o
 CXX = clang++
 CXXFLAGS = -Wall -std=c++1z
 
