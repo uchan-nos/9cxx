@@ -66,8 +66,20 @@ const std::array<std::string, 6> kParamRegList{
   "r9",
 };
 
+std::string ExternName(const std::string& id_name) {
+  if (leading_underscore) {
+    return '_' + id_name;
+  }
+  return id_name;
+}
+
 class BaseVisitor : public Visitor {
  public:
+  void Visit(TranslationUnit* unit, bool lvalue) {
+    for (const auto& decl : unit->decls) {
+      decl->Accept(this, lvalue);
+    }
+  }
   void Visit(CompoundStatement* stmt, bool lvalue) {}
   void Visit(ExpressionStatement* stmt, bool lvalue) {}
   void Visit(DeclarationStatement* stmt, bool lvalue) {}
@@ -106,6 +118,13 @@ class BaseVisitor : public Visitor {
     for (const auto& decl : pq->params) {
       decl->Accept(this, lvalue);
     }
+  }
+  void Visit(FunctionDefinition* defn, bool lvalue) {
+    for (const auto& spec : defn->specs) {
+      spec->Accept(this, lvalue);
+    }
+    defn->dtor->Accept(this, lvalue);
+    defn->body->Accept(this, lvalue);
   }
 };
 
@@ -307,9 +326,7 @@ class CodeGenerateVisitor : public BaseVisitor {
       code_.push_back(AssemblyLine("  %1% rax, [rbp - %2%]").Format(
             op_mnemonic, ids_[id_name].rbp_offset));
     } else if (ids_[id_name].type == IdType::kGlobal) {
-      auto extern_name = leading_underscore ? '_' + id_name : id_name;
-      code_.push_back(AssemblyLine("  extern %1%").Format(extern_name));
-      code_.push_back(AssemblyLine("  mov rax, %1%").Format(extern_name));
+      code_.push_back(AssemblyLine("  mov rax, %1%").Format(ExternName(id_name)));
     } else {
       std::cerr << "Undefined symbol: " << id_name << std::endl;
     }
@@ -325,7 +342,9 @@ class CodeGenerateVisitor : public BaseVisitor {
       InitDeclaratorVisitor v2;
       init_decl->Accept(&v2, false);
       if (v2.FunctionDeclarator()) {
-        ids_[v2.Identifier()->value].type = IdType::kGlobal;
+        const auto& id_name = v2.Identifier()->value;
+        ids_[id_name].type = IdType::kGlobal;
+        code_.push_back(AssemblyLine("  extern %1%").Format(ExternName(id_name)));
       } else {
         last_rbp_offset_ += 8;
         ids_[v2.Identifier()->value].type = IdType::kLocalVariable;
@@ -354,6 +373,30 @@ class CodeGenerateVisitor : public BaseVisitor {
   void Visit(NoPtrDeclarator* dtor, bool lvalue) {
   }
 
+  void Visit(FunctionDefinition* defn, bool lvalue) {
+    DeclSpecifierVisitor v;
+    for (const auto& spec : defn->specs) {
+      spec->Accept(&v, false);
+    }
+
+    InitDeclaratorVisitor v2;
+    defn->dtor->Accept(&v2, false);
+    if (!v2.Identifier()) {
+      std::cerr << "funcname must be specified" << std::endl;
+      return;
+    }
+
+    const auto& id_name = v2.Identifier()->value;
+    ids_[id_name].type = IdType::kGlobal;
+    auto extern_name = ExternName(id_name);
+    code_.push_back(AssemblyLine("global %1%").Format(extern_name));
+    code_.push_back(AssemblyLine("%1%:").Format(extern_name));
+
+    defn->body->Accept(this, false);
+
+    code_.push_back(AssemblyLine("  ret"));
+  }
+
  private:
   std::vector<AssemblyLine>& code_;
   std::map<std::string, IdInfo> ids_;
@@ -363,14 +406,8 @@ class CodeGenerateVisitor : public BaseVisitor {
 class CodeGenerator {
  public:
   void Generate(std::shared_ptr<ASTNode> ast_root) {
-    const char* main_name = leading_underscore ? "_main" : "main";
-    code_.push_back(AssemblyLine("global %1%").Format(main_name));
-    code_.push_back(AssemblyLine("%1%:").Format(main_name));
-
     CodeGenerateVisitor visitor{code_};
     ast_root->Accept(&visitor, false);
-
-    code_.push_back(AssemblyLine("  ret"));
   }
 
   const std::vector<AssemblyLine>& GetCode() const {

@@ -32,6 +32,7 @@ class TokenReader {
 };
 
 struct ASTNode;
+struct TranslationUnit;
 struct CompoundStatement;
 struct ExpressionStatement;
 struct DeclarationStatement;
@@ -58,10 +59,12 @@ struct NoPtrDeclarator;
 struct FunctionDeclarator;
 struct ParameterDeclaration;
 struct ParametersAndQualifiers;
+struct FunctionDefinition;
 
 class Visitor {
  public:
   virtual ~Visitor() = default;
+  virtual void Visit(TranslationUnit* unit, bool lvalue) = 0;
   virtual void Visit(CompoundStatement* stmt, bool lvalue) = 0;
   virtual void Visit(ExpressionStatement* stmt, bool lvalue) = 0;
   virtual void Visit(DeclarationStatement* stmt, bool lvalue) = 0;
@@ -81,6 +84,7 @@ class Visitor {
   virtual void Visit(FunctionDeclarator* dtor, bool lvalue) = 0;
   virtual void Visit(ParameterDeclaration* decl, bool lvalue) = 0;
   virtual void Visit(ParametersAndQualifiers* pq, bool lvalue) = 0;
+  virtual void Visit(FunctionDefinition* defn, bool lvalue) = 0;
 };
 
 struct ASTNode {
@@ -90,6 +94,11 @@ struct ASTNode {
 
 #define ACCEPT \
   void Accept(Visitor* visitor, bool lvalue) { visitor->Visit(this, lvalue); }
+
+struct TranslationUnit : public ASTNode {
+  std::vector<std::shared_ptr<Declaration>> decls;
+  ACCEPT
+};
 
 struct Statement : public ASTNode {
 };
@@ -226,6 +235,13 @@ struct ParametersAndQualifiers : public ASTNode {
   ACCEPT
 };
 
+struct FunctionDefinition : public Declaration {
+  std::vector<std::shared_ptr<DeclSpecifier>> specs;
+  std::shared_ptr<Declarator> dtor;
+  std::shared_ptr<Statement> body;
+  ACCEPT
+};
+
 const std::set<std::string> kBasicTypes{
   "char",
   "int",
@@ -237,8 +253,15 @@ class Parser {
   }
 
   bool Parse() {
-    auto ast = ParseStatement();
-    ast_root_ = ast;
+    auto n = std::make_shared<TranslationUnit>();
+    std::cerr << "parsing translation unit (parsing declaration)" << std::endl;
+    auto decl = ParseDeclaration();
+    while (decl) {
+      n->decls.push_back(decl);
+      std::cerr << "parsing translation unit (parsing declaration)" << std::endl;
+      decl = ParseDeclaration();
+    }
+    ast_root_ = n;
     return reader_.Read(TokenType::kEOF);
   }
 
@@ -251,27 +274,42 @@ class Parser {
   std::shared_ptr<ASTNode> ast_root_;
 
   std::shared_ptr<Statement> ParseStatement() {
+    std::cerr << "ParseStatement: begin. current token is " << GetTokenName(reader_.Current().type) << std::endl;
     if (reader_.Current().type == TokenType::kLBrace) {
+      std::cerr << "parsing comp stmt" << std::endl;
       return ParseCompoundStatement();
     } else if (reader_.Current().type == TokenType::kKeyword) {
-      return ParseDeclarationStatement();
+      std::cerr << "token is keyword --> parsing decl stmt" << std::endl;
+      auto stmt = ParseDeclarationStatement();
+      std::cerr << "  parsed decl stmt" << std::endl;
+      return stmt;
     }
+    std::cerr << "token is not keyword --> parsing exp stmt" << std::endl;
     return ParseExpressionStatement();
   }
 
   std::shared_ptr<Statement> ParseCompoundStatement() {
+    std::cerr << "ParseCompoundStatemnt: begin. current token is " << GetTokenName(reader_.Current().type) << std::endl;
     if (!reader_.Read(TokenType::kLBrace)) {
       return {};
     }
 
     std::vector<std::shared_ptr<Statement>> statements;
-    auto stmt = ParseStatement();
-    while (stmt) {
+
+    while (reader_.Current().type != TokenType::kRBrace) {
+      std::cerr << "ParseCompoundStatement: parsing a statement" << std::endl;
+      auto stmt = ParseStatement();
+      if (!stmt) {
+        std::cerr << "ParseCompoundStatement: A statement should be there."
+                  << std::endl;
+        return {};
+      }
       statements.push_back(stmt);
-      stmt = ParseStatement();
     }
 
     if (!reader_.Read(TokenType::kRBrace)) {
+      std::cerr << "ParseCompoundStatement: kRBrace is needed. actual "
+                << GetTokenName(reader_.Current().type) << std::endl;
       return {};
     }
 
@@ -282,9 +320,7 @@ class Parser {
 
   std::shared_ptr<Statement> ParseDeclarationStatement() {
     auto decl = ParseBlockDeclaration();
-    if (!decl || !reader_.Read(TokenType::kSemicolon)) {
-      return {};
-    }
+    if (!decl) return {};
 
     auto n = std::make_shared<DeclarationStatement>();
     n->decl = decl;
@@ -458,29 +494,68 @@ class Parser {
   }
 
   std::shared_ptr<Declaration> ParseDeclaration() {
-    return ParseBlockDeclaration();
+    std::cerr << "ParseDeclaration" << std::endl;
+    auto specs = ParseDeclSpecifierSeq();
+    if (specs.empty()) return {};
+
+    auto dtor = ParseDeclarator();
+    if (!dtor) return {};
+
+    if (reader_.Current().type == TokenType::kLBrace) {
+      auto body = ParseCompoundStatement();
+      auto n = std::make_shared<FunctionDefinition>();
+      n->specs = specs;
+      n->dtor = dtor;
+      n->body = body;
+      return n;
+    }
+
+    return ParseBlockDeclaration(specs, dtor);
+  }
+
+  std::shared_ptr<BlockDeclaration> ParseBlockDeclaration(
+      const std::vector<std::shared_ptr<DeclSpecifier>>& specs,
+      const std::shared_ptr<Declarator>& dtor) {
+    return ParseSimpleDeclaration(specs, dtor);
   }
 
   std::shared_ptr<BlockDeclaration> ParseBlockDeclaration() {
-    return ParseSimpleDeclaration();
+    std::cerr << "ParseBlockDeclaration" << std::endl;
+    auto specs = ParseDeclSpecifierSeq();
+    if (specs.empty()) return {};
+    auto dtor = ParseDeclarator();
+    return ParseBlockDeclaration(specs, dtor);
   }
 
-  std::shared_ptr<SimpleDeclaration> ParseSimpleDeclaration() {
+  std::shared_ptr<SimpleDeclaration> ParseSimpleDeclaration(
+      const std::vector<std::shared_ptr<DeclSpecifier>>& specs,
+      const std::shared_ptr<Declarator>& dtor) {
     auto n = std::make_shared<SimpleDeclaration>();
-    auto spec = ParseDeclSpecifier();
-    while (spec) {
-      n->specs.push_back(spec);
-      spec = ParseDeclSpecifier();
-    }
-    auto dtor = ParseInitDeclarator();
-    if (dtor) n->dtors.push_back(dtor);
+    n->specs = specs;
+
+    auto init_dtor = ParseInitDeclarator(dtor);
+    if (init_dtor) n->dtors.push_back(init_dtor);
     while (reader_.Read(TokenType::kComma)) {
-      dtor = ParseInitDeclarator();
-      if (!dtor) return {};
-      n->dtors.push_back(dtor);
+      init_dtor = ParseInitDeclarator();
+      if (!init_dtor) return {};
+      n->dtors.push_back(init_dtor);
     }
     std::cerr << "ParseSimpleDeclaration: size of dtors = " << n->dtors.size() << std::endl;
+
+    if (!reader_.Read(TokenType::kSemicolon)) {
+      return {};
+    }
     return n;
+  }
+
+  std::vector<std::shared_ptr<DeclSpecifier>> ParseDeclSpecifierSeq() {
+    std::vector<std::shared_ptr<DeclSpecifier>> specs;
+    auto spec = ParseDeclSpecifier();
+    while (spec) {
+      specs.push_back(spec);
+      spec = ParseDeclSpecifier();
+    }
+    return specs;
   }
 
   std::shared_ptr<DeclSpecifier> ParseDeclSpecifier() {
@@ -500,8 +575,8 @@ class Parser {
     return n;
   }
 
-  std::shared_ptr<InitDeclarator> ParseInitDeclarator() {
-    auto dtor = ParseDeclarator();
+  std::shared_ptr<InitDeclarator> ParseInitDeclarator(
+      const std::shared_ptr<Declarator>& dtor) {
     if (!dtor) {
       return {};
     }
@@ -509,6 +584,11 @@ class Parser {
     n->dtor = dtor;
     n->init = ParseInitializer();;
     return n;
+  }
+
+  std::shared_ptr<InitDeclarator> ParseInitDeclarator() {
+    std::cerr << "ParseInitDeclarator" << std::endl;
+    return ParseInitDeclarator(ParseDeclarator());
   }
 
   std::shared_ptr<Initializer> ParseInitializer() {
@@ -527,7 +607,6 @@ class Parser {
 
   std::shared_ptr<InitializerClause> ParseInitializerClause() {
     auto assign = ParseAssignmentExpression();
-    std::cerr << "parsed assign: " << (bool)assign << std::endl;
     std::shared_ptr<BracedInitList> braced;
     if (!assign) {
       //braced = ParseBracedInitList;
@@ -545,6 +624,7 @@ class Parser {
     auto decl = ParseNoPtrDeclarator();
     if (auto param = ParseParametersAndQualifiers()) {
       auto n = std::make_shared<FunctionDeclarator>();
+      std::cerr << "function dtor" << std::endl;
       n->decl = decl;
       n->param = param;
       return n;
