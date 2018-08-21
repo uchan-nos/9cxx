@@ -37,15 +37,22 @@ then
     exit 0
 fi
 
-as $(dirname $0)/testcase.s -o $(dirname $0)/testcase.o
-clang++ $(dirname $0)/testcase.o $(dirname $0)/supplement.cpp -o $(dirname $0)/testcase.out
+FORMAT=elf64
+PIE=""
+if [ "$(uname -s)" = "Darwin" ]
+then
+    FORMAT=macho64
+    PIE="-Wl,-no_pie"
+fi
+nasm $(dirname $0)/testcase.s -f $FORMAT -o $(dirname $0)/testcase.o
+clang++ $(dirname $0)/testcase.o $(dirname $0)/supplement.cpp -Wl,-e -Wl,main $PIE -o $(dirname $0)/testcase.out
 
 $(dirname $0)/testcase.out > $(dirname $0)/actual.out
 ACTUAL_CODE=$?
 
 if [ ! -f "$EXPECTED_OUT" ]
 then
-    echo -n "$EXPECTED_OUT" > $(dirname $0)/expected.out
+    /bin/echo -n "$EXPECTED_OUT" > $(dirname $0)/expected.out
     EXPECTED_OUT=$(dirname $0)/expected.out
 fi
 DIFF=$(diff $(dirname $0)/actual.out $EXPECTED_OUT)
