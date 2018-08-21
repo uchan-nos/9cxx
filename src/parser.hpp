@@ -55,6 +55,9 @@ struct InitializerClause;
 struct BracedInitList;
 struct Declarator;
 struct NoPtrDeclarator;
+struct FunctionDeclarator;
+struct ParameterDeclaration;
+struct ParametersAndQualifiers;
 
 class Visitor {
  public:
@@ -75,6 +78,9 @@ class Visitor {
   virtual void Visit(EqualInitializer* init, bool lvalue) = 0;
   virtual void Visit(InitializerClause* clause, bool lvalue) = 0;
   virtual void Visit(NoPtrDeclarator* dtor, bool lvalue) = 0;
+  virtual void Visit(FunctionDeclarator* dtor, bool lvalue) = 0;
+  virtual void Visit(ParameterDeclaration* decl, bool lvalue) = 0;
+  virtual void Visit(ParametersAndQualifiers* pq, bool lvalue) = 0;
 };
 
 struct ASTNode {
@@ -199,6 +205,24 @@ struct Declarator : public ASTNode {
 
 struct NoPtrDeclarator : public Declarator {
   std::shared_ptr<Identifier> id;
+  ACCEPT
+};
+
+struct FunctionDeclarator : public Declarator {
+  std::shared_ptr<NoPtrDeclarator> decl;
+  std::shared_ptr<ParametersAndQualifiers> param;
+  ACCEPT
+};
+
+struct ParameterDeclaration : public Declaration {
+  std::shared_ptr<DeclSpecifier> spec;
+  std::shared_ptr<Declarator> dtor;
+  ACCEPT
+};
+
+struct ParametersAndQualifiers : public ASTNode {
+  std::vector<std::shared_ptr<ParameterDeclaration>> params;
+  bool omit; // ...
   ACCEPT
 };
 
@@ -444,7 +468,7 @@ class Parser {
     }
     auto dtor = ParseInitDeclarator();
     if (dtor) n->dtors.push_back(dtor);
-    while (reader_.Read(TokenType::kColon)) {
+    while (reader_.Read(TokenType::kComma)) {
       dtor = ParseInitDeclarator();
       if (!dtor) return {};
       n->dtors.push_back(dtor);
@@ -511,17 +535,58 @@ class Parser {
   }
 
   std::shared_ptr<Declarator> ParseDeclarator() {
-    return ParseNoPtrDeclarator();
+    auto decl = ParseNoPtrDeclarator();
+    if (auto param = ParseParametersAndQualifiers()) {
+      auto n = std::make_shared<FunctionDeclarator>();
+      n->decl = decl;
+      n->param = param;
+      return n;
+    }
+    return decl;
   }
 
   std::shared_ptr<NoPtrDeclarator> ParseNoPtrDeclarator() {
     if (reader_.Current().type != TokenType::kId) {
       return {};
     }
-    auto token = reader_.Read();
+    auto id = reader_.Read().string_value;
     auto n = std::make_shared<NoPtrDeclarator>();
     n->id = std::make_shared<Identifier>();
-    n->id->value = token.string_value;
+    n->id->value = id;
+    return n;
+  }
+
+  std::shared_ptr<ParametersAndQualifiers> ParseParametersAndQualifiers() {
+    if (!reader_.Read(TokenType::kLParen)) {
+      return {};
+    }
+    auto n = std::make_shared<ParametersAndQualifiers>();
+    auto decl = ParseParameterDeclaration();
+    if (decl) n->params.push_back(decl);
+    while (reader_.Read(TokenType::kComma)) {
+      decl = ParseParameterDeclaration();
+      if (!decl) return {};
+      n->params.push_back(decl);
+    }
+    if (!reader_.Read(TokenType::kRParen)) {
+      return {};
+    }
+    n->omit = false;
+    return n;
+  }
+
+  std::shared_ptr<ParameterDeclaration> ParseParameterDeclaration() {
+    auto spec = ParseDeclSpecifier();
+    if (!spec) {
+      return {};
+    }
+    auto dtor = ParseDeclarator();
+    if (!dtor) {
+      return {};
+    }
+    auto n = std::make_shared<ParameterDeclaration>();
+    n->spec = spec;
+    n->dtor = dtor;
     return n;
   }
 };

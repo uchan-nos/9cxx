@@ -13,7 +13,7 @@ enum class TokenType {
   kRParen,
   kLBrace,
   kRBrace,
-  kColon,
+  kComma,
   kSemicolon,
   kKeyword,
   kEOF,
@@ -34,7 +34,7 @@ const char* token_name_table[] = {
   "kRParen",
   "kLBrace",
   "kRBrace",
-  "kColon",
+  "kComma",
   "kSemicolon",
   "kKeyword",
   "kEOF",
@@ -171,7 +171,7 @@ Token ReadToken(SourceReader& reader) {
   } else if (reader.Read('}')) {
     return {TokenType::kRBrace, 0};
   } else if (reader.Read(',')) {
-    return {TokenType::kColon, 0};
+    return {TokenType::kComma, 0};
   } else if (reader.Read(';')) {
     return {TokenType::kSemicolon, 0};
   } else if (auto result = ReadInteger(reader); result.success) {

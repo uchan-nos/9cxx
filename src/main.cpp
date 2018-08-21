@@ -83,11 +83,25 @@ class BaseVisitor : public Visitor {
   void Visit(NoPtrDeclarator* dtor, bool lvalue) {
     dtor->id->Accept(this, lvalue);
   }
+  void Visit(FunctionDeclarator* dtor, bool lvalue) {
+    dtor->decl->Accept(this, lvalue);
+    dtor->param->Accept(this, lvalue);
+  }
+  void Visit(ParameterDeclaration* decl, bool lvalue) {
+    decl->spec->Accept(this, lvalue);
+    decl->dtor->Accept(this, lvalue);
+  }
+  void Visit(ParametersAndQualifiers* pq, bool lvalue) {
+    for (const auto& decl : pq->params) {
+      decl->Accept(this, lvalue);
+    }
+  }
 };
 
 class DeclSpecifierVisitor : public BaseVisitor {
  public:
   void Visit(SimpleTypeSpecifier* spec, bool lvalue) {
+    BaseVisitor::Visit(spec, lvalue);
     simple_type_specifier_ = spec;
   }
 
@@ -96,17 +110,24 @@ class DeclSpecifierVisitor : public BaseVisitor {
   }
 
  private:
-  struct SimpleTypeSpecifier* simple_type_specifier_;
+  struct SimpleTypeSpecifier* simple_type_specifier_ = nullptr;
 };
 
 class InitDeclaratorVisitor : public BaseVisitor {
  public:
   void Visit(InitializerClause* clause, bool lvalue) {
+    BaseVisitor::Visit(clause, lvalue);
     initializer_clause_= clause;
   }
 
   void Visit(Identifier* id, bool lvalue) {
+    BaseVisitor::Visit(id, lvalue);
     id_ = id;
+  }
+
+  void Visit(FunctionDeclarator* dtor, bool lvalue) {
+    BaseVisitor::Visit(dtor, lvalue);
+    function_declarator_ = dtor;
   }
 
   InitializerClause* InitializerClause() {
@@ -117,12 +138,17 @@ class InitDeclaratorVisitor : public BaseVisitor {
     return id_;
   }
 
+  FunctionDeclarator* FunctionDeclarator() {
+    return function_declarator_;
+  }
+
  private:
-  struct InitializerClause* initializer_clause_;
-  struct Identifier* id_;
+  struct InitializerClause* initializer_clause_ = nullptr;
+  struct Identifier* id_ = nullptr;
+  struct FunctionDeclarator* function_declarator_ = nullptr;
 };
 
-class CodeGenerateVisitor : public Visitor {
+class CodeGenerateVisitor : public BaseVisitor {
  public:
   CodeGenerateVisitor(std::vector<AssemblyLine>& code)
       : code_{code}, ids_{}, last_rbp_offset_{0} {
@@ -228,7 +254,8 @@ class CodeGenerateVisitor : public Visitor {
     if (auto n = std::dynamic_pointer_cast<Identifier>(exp->name)) {
       const auto& id_name = n->value;
       if (ids_.find(id_name) == ids_.end()) {
-        ids_[id_name].type = IdType::kGlobal;
+        std::cerr << "Undeclared identifier: " << id_name << std::endl;
+        return;
       }
     }
 
@@ -271,9 +298,13 @@ class CodeGenerateVisitor : public Visitor {
     for (const auto& init_decl : decl->dtors) {
       InitDeclaratorVisitor v2;
       init_decl->Accept(&v2, false);
-      last_rbp_offset_ += 8;
-      ids_[v2.Identifier()->value].type = IdType::kLocalVariable;
-      ids_[v2.Identifier()->value].rbp_offset = last_rbp_offset_;
+      if (v2.FunctionDeclarator()) {
+        ids_[v2.Identifier()->value].type = IdType::kGlobal;
+      } else {
+        last_rbp_offset_ += 8;
+        ids_[v2.Identifier()->value].type = IdType::kLocalVariable;
+        ids_[v2.Identifier()->value].rbp_offset = last_rbp_offset_;
+      }
     }
   }
 
