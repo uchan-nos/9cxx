@@ -13,7 +13,9 @@ enum class TokenType {
   kRParen,
   kLBrace,
   kRBrace,
+  kColon,
   kSemicolon,
+  kKeyword,
   kEOF,
 };
 
@@ -32,7 +34,9 @@ const char* token_name_table[] = {
   "kRParen",
   "kLBrace",
   "kRBrace",
+  "kColon",
   "kSemicolon",
+  "kKeyword",
   "kEOF",
 };
 
@@ -132,6 +136,11 @@ ReadResult<std::string> ReadId(SourceReader& reader) {
   return {true, value};
 }
 
+const std::set<std::string> kKeywords = {
+  "char",
+  "int",
+};
+
 Token ReadToken(SourceReader& reader) {
   if (reader.Read('+')) {
     return {TokenType::kOpPlus, 0};
@@ -161,11 +170,16 @@ Token ReadToken(SourceReader& reader) {
     return {TokenType::kLBrace, 0};
   } else if (reader.Read('}')) {
     return {TokenType::kRBrace, 0};
+  } else if (reader.Read(',')) {
+    return {TokenType::kColon, 0};
   } else if (reader.Read(';')) {
     return {TokenType::kSemicolon, 0};
   } else if (auto result = ReadInteger(reader); result.success) {
     return {TokenType::kInteger, result.value};
   } else if (auto result = ReadId(reader); result.success) {
+    if (kKeywords.find(result.value) != kKeywords.end()) {
+      return {TokenType::kKeyword, 0, result.value};
+    }
     return {TokenType::kId, 0, result.value};
   } else if (reader.Read('\0')) {
     return {TokenType::kEOF, 0};

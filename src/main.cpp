@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <boost/format.hpp>
 
 #include "tokenizer.hpp"
@@ -54,6 +55,73 @@ struct IdInfo {
   size_t rbp_offset; // [rbp - rbp_offset]
 };
 
+class BaseVisitor : public Visitor {
+ public:
+  void Visit(CompoundStatement* stmt, bool lvalue) {}
+  void Visit(ExpressionStatement* stmt, bool lvalue) {}
+  void Visit(DeclarationStatement* stmt, bool lvalue) {}
+  void Visit(AssignmentExpression* exp, bool lvalue) {}
+  void Visit(EqualityExpression* exp, bool lvalue) {}
+  void Visit(AdditiveExpression* exp, bool lvalue) {}
+  void Visit(MultiplicativeExpression* exp, bool lvalue) {}
+  void Visit(FunctionCallExpression* exp, bool lvalue) {}
+  void Visit(IntegerLiteral* exp, bool lvalue) {}
+  void Visit(Identifier* exp, bool lvalue) {}
+  void Visit(SimpleDeclaration* decl, bool lvalue) {}
+  void Visit(SimpleTypeSpecifier* spec, bool lvalue) {}
+  void Visit(InitDeclarator* dtor, bool lvalue) {
+    dtor->dtor->Accept(this, lvalue);
+    dtor->init->Accept(this, lvalue);
+  }
+  void Visit(EqualInitializer* init, bool lvalue) {
+    init->clause->Accept(this, lvalue);
+  }
+  void Visit(InitializerClause* clause, bool lvalue) {
+    if (clause->assign) clause->assign->Accept(this, lvalue);
+    if (clause->braced) clause->braced->Accept(this, lvalue);
+  }
+  void Visit(NoPtrDeclarator* dtor, bool lvalue) {
+    dtor->id->Accept(this, lvalue);
+  }
+};
+
+class DeclSpecifierVisitor : public BaseVisitor {
+ public:
+  void Visit(SimpleTypeSpecifier* spec, bool lvalue) {
+    simple_type_specifier_ = spec;
+  }
+
+  SimpleTypeSpecifier* SimpleTypeSpecifier() {
+    return simple_type_specifier_;
+  }
+
+ private:
+  struct SimpleTypeSpecifier* simple_type_specifier_;
+};
+
+class InitDeclaratorVisitor : public BaseVisitor {
+ public:
+  void Visit(InitializerClause* clause, bool lvalue) {
+    initializer_clause_= clause;
+  }
+
+  void Visit(Identifier* id, bool lvalue) {
+    id_ = id;
+  }
+
+  InitializerClause* InitializerClause() {
+    return initializer_clause_;
+  }
+
+  Identifier* Identifier() {
+    return id_;
+  }
+
+ private:
+  struct InitializerClause* initializer_clause_;
+  struct Identifier* id_;
+};
+
 class CodeGenerateVisitor : public Visitor {
  public:
   CodeGenerateVisitor(std::vector<AssemblyLine>& code)
@@ -83,13 +151,16 @@ class CodeGenerateVisitor : public Visitor {
     stmt->exp->Accept(this, lvalue);
   }
 
+  void Visit(DeclarationStatement* stmt, bool lvalue) {
+    stmt->decl->Accept(this, lvalue);
+  }
+
   void Visit(AssignmentExpression* exp, bool lvalue) {
     if (auto n = std::dynamic_pointer_cast<Identifier>(exp->lhs)) {
       const auto& id_name = n->value;
       if (ids_.find(id_name) == ids_.end()) {
-        last_rbp_offset_ += 8;
-        ids_[id_name].type = IdType::kLocalVariable;
-        ids_[id_name].rbp_offset = last_rbp_offset_;
+        std::cerr << "Undeclared identifier: " << id_name << std::endl;
+        return;
       }
     }
 
@@ -182,15 +253,43 @@ class CodeGenerateVisitor : public Visitor {
     if (ids_[id_name].type == IdType::kLocalVariable) {
       code_.push_back(AssemblyLine("  %1% rax, [rbp - %2%]").Format(
             op_mnemonic, ids_[id_name].rbp_offset));
-    } else {
+    } else if (ids_[id_name].type == IdType::kGlobal) {
       auto extern_name = leading_underscore ? '_' + id_name : id_name;
       code_.push_back(AssemblyLine("  extern %1%").Format(extern_name));
       code_.push_back(AssemblyLine("  mov rax, %1%").Format(extern_name));
+    } else {
+      std::cerr << "Undefined symbol: " << id_name << std::endl;
     }
   }
 
-  void Visit(SimpleDeclaration* decl) {
-    // pass
+  void Visit(SimpleDeclaration* decl, bool lvalue) {
+    DeclSpecifierVisitor v;
+    for (const auto& spec : decl->specs) {
+      spec->Accept(&v, false);
+    }
+
+    for (const auto& init_decl : decl->dtors) {
+      InitDeclaratorVisitor v2;
+      init_decl->Accept(&v2, false);
+      last_rbp_offset_ += 8;
+      ids_[v2.Identifier()->value].type = IdType::kLocalVariable;
+      ids_[v2.Identifier()->value].rbp_offset = last_rbp_offset_;
+    }
+  }
+
+  void Visit(SimpleTypeSpecifier* spec, bool lvalue) {
+  }
+
+  void Visit(InitDeclarator* dtor, bool lvalue) {
+  }
+
+  void Visit(EqualInitializer* init, bool lvalue) {
+  }
+
+  void Visit(InitializerClause* clause, bool lvalue) {
+  }
+
+  void Visit(NoPtrDeclarator* dtor, bool lvalue) {
   }
 
  private:

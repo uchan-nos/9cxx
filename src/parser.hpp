@@ -34,6 +34,7 @@ class TokenReader {
 struct ASTNode;
 struct CompoundStatement;
 struct ExpressionStatement;
+struct DeclarationStatement;
 struct AssignmentExpression;
 struct EqualityExpression;
 struct AdditiveExpression;
@@ -43,13 +44,24 @@ struct UnaryExpression;
 struct IntegerLiteral;
 struct Identifier;
 struct Declaration;
+struct BlockDeclaration;
 struct SimpleDeclaration;
+struct DeclSpecifier;
+struct SimpleTypeSpecifier;
+struct InitDeclarator;
+struct Initializer;
+struct EqualInitializer;
+struct InitializerClause;
+struct BracedInitList;
+struct Declarator;
+struct NoPtrDeclarator;
 
 class Visitor {
  public:
   virtual ~Visitor() = default;
   virtual void Visit(CompoundStatement* stmt, bool lvalue) = 0;
   virtual void Visit(ExpressionStatement* stmt, bool lvalue) = 0;
+  virtual void Visit(DeclarationStatement* stmt, bool lvalue) = 0;
   virtual void Visit(AssignmentExpression* exp, bool lvalue) = 0;
   virtual void Visit(EqualityExpression* exp, bool lvalue) = 0;
   virtual void Visit(AdditiveExpression* exp, bool lvalue) = 0;
@@ -57,7 +69,12 @@ class Visitor {
   virtual void Visit(FunctionCallExpression* exp, bool lvalue) = 0;
   virtual void Visit(IntegerLiteral* exp, bool lvalue) = 0;
   virtual void Visit(Identifier* exp, bool lvalue) = 0;
-  virtual void Visit(SimpleDeclaration* decl) = 0;
+  virtual void Visit(SimpleDeclaration* decl, bool lvalue) = 0;
+  virtual void Visit(SimpleTypeSpecifier* spec, bool lvalue) = 0;
+  virtual void Visit(InitDeclarator* dtor, bool lvalue) = 0;
+  virtual void Visit(EqualInitializer* init, bool lvalue) = 0;
+  virtual void Visit(InitializerClause* clause, bool lvalue) = 0;
+  virtual void Visit(NoPtrDeclarator* dtor, bool lvalue) = 0;
 };
 
 struct ASTNode {
@@ -82,6 +99,12 @@ struct CompoundStatement : public Statement {
 
 struct ExpressionStatement : public Statement {
   std::shared_ptr<Expression> exp;
+
+  ACCEPT
+};
+
+struct DeclarationStatement : public Statement {
+  std::shared_ptr<BlockDeclaration> decl;
 
   ACCEPT
 };
@@ -130,29 +153,27 @@ struct Identifier : public Expression {
 struct Declaration : public ASTNode {
 };
 
+struct BlockDeclaration : public Declaration {
+};
+
+struct SimpleDeclaration : public BlockDeclaration {
+  std::vector<std::shared_ptr<DeclSpecifier>> specs;
+  std::vector<std::shared_ptr<InitDeclarator>> dtors;;
+  ACCEPT
+};
+
 struct DeclSpecifier : public ASTNode {
 };
 
 struct SimpleTypeSpecifier : public DeclSpecifier {
   std::string type;
-};
-
-struct SimpleDeclaration : public Declaration {
-  std::vector<std::shared_ptr<DeclSpecifier>> specs;
-  std::vector<std::shared_ptr<InitDeclarator>> dtors;;
   ACCEPT
 };
 
 struct InitDeclarator : public ASTNode {
   std::shared_ptr<Declarator> dtor;
   std::shared_ptr<Initializer> init;
-};
-
-struct Declarator : public ASTNode {
-};
-
-struct NoPtrDeclarator : public Declarator {
-  std::shared_ptr<Identifier> id;
+  ACCEPT
 };
 
 struct Initializer : public ASTNode {
@@ -160,15 +181,30 @@ struct Initializer : public ASTNode {
 
 struct EqualInitializer : public Initializer {
   std::shared_ptr<InitializerClause> clause;
+  ACCEPT
 };
 
 struct InitializerClause : public ASTNode {
-  std::shared_ptr<AssignmentExpression> assign;
+  std::shared_ptr<Expression> assign;
   std::shared_ptr<BracedInitList> braced;
+  ACCEPT
 };
 
 struct BracedInitList : public ASTNode {
   std::vector<std::shared_ptr<InitializerClause>> clauses;
+};
+
+struct Declarator : public ASTNode {
+};
+
+struct NoPtrDeclarator : public Declarator {
+  std::shared_ptr<Identifier> id;
+  ACCEPT
+};
+
+const std::set<std::string> kBasicTypes{
+  "char",
+  "int",
 };
 
 class Parser {
@@ -193,6 +229,8 @@ class Parser {
   std::shared_ptr<Statement> ParseStatement() {
     if (reader_.Current().type == TokenType::kLBrace) {
       return ParseCompoundStatement();
+    } else if (reader_.Current().type == TokenType::kKeyword) {
+      return ParseDeclarationStatement();
     }
     return ParseExpressionStatement();
   }
@@ -215,6 +253,17 @@ class Parser {
 
     auto n = std::make_shared<CompoundStatement>();
     n->statements = statements;
+    return n;
+  }
+
+  std::shared_ptr<Statement> ParseDeclarationStatement() {
+    auto decl = ParseBlockDeclaration();
+    if (!decl || !reader_.Read(TokenType::kSemicolon)) {
+      return {};
+    }
+
+    auto n = std::make_shared<DeclarationStatement>();
+    n->decl = decl;
     return n;
   }
 
@@ -375,6 +424,104 @@ class Parser {
     auto token = reader_.Read();
     auto n = std::make_shared<IntegerLiteral>();
     n->value = token.int_value;
+    return n;
+  }
+
+  std::shared_ptr<Declaration> ParseDeclaration() {
+    return ParseBlockDeclaration();
+  }
+
+  std::shared_ptr<BlockDeclaration> ParseBlockDeclaration() {
+    return ParseSimpleDeclaration();
+  }
+
+  std::shared_ptr<SimpleDeclaration> ParseSimpleDeclaration() {
+    auto n = std::make_shared<SimpleDeclaration>();
+    auto spec = ParseDeclSpecifier();
+    while (spec) {
+      n->specs.push_back(spec);
+      spec = ParseDeclSpecifier();
+    }
+    auto dtor = ParseInitDeclarator();
+    if (dtor) n->dtors.push_back(dtor);
+    while (reader_.Read(TokenType::kColon)) {
+      dtor = ParseInitDeclarator();
+      if (!dtor) return {};
+      n->dtors.push_back(dtor);
+    }
+    return n;
+  }
+
+  std::shared_ptr<DeclSpecifier> ParseDeclSpecifier() {
+    return ParseSimpleTypeSpecifier();
+  }
+
+  std::shared_ptr<SimpleTypeSpecifier> ParseSimpleTypeSpecifier() {
+    if (reader_.Current().type != TokenType::kKeyword) {
+      return {};
+    }
+    auto token = reader_.Read();
+    if (kBasicTypes.find(token.string_value) == kBasicTypes.end()) {
+      return {};
+    }
+    auto n = std::make_shared<SimpleTypeSpecifier>();
+    n->type = token.string_value;
+    return n;
+  }
+
+  std::shared_ptr<InitDeclarator> ParseInitDeclarator() {
+    auto dtor = ParseDeclarator();
+    if (!dtor) {
+      return {};
+    }
+    auto init = ParseInitializer();
+    if (!init) {
+      return {};
+    }
+    auto n = std::make_shared<InitDeclarator>();
+    n->dtor = dtor;
+    n->init = init;
+    return n;
+  }
+
+  std::shared_ptr<Initializer> ParseInitializer() {
+    return ParseEqualInitializer();
+  }
+
+  std::shared_ptr<EqualInitializer> ParseEqualInitializer() {
+    auto clause = ParseInitializerClause();
+    if (!clause) {
+      return {};
+    }
+    auto n = std::make_shared<EqualInitializer>();
+    n->clause = clause;
+    return n;
+  }
+
+  std::shared_ptr<InitializerClause> ParseInitializerClause() {
+    auto assign = ParseAssignmentExpression();
+    std::shared_ptr<BracedInitList> braced;
+    if (!assign) {
+      //braced = ParseBracedInitList;
+    }
+    auto n = std::make_shared<InitializerClause>();
+    n->assign = assign;
+    n->braced = braced;
+    return n;
+  }
+
+  std::shared_ptr<Declarator> ParseDeclarator() {
+    return ParseNoPtrDeclarator();
+  }
+
+  std::shared_ptr<NoPtrDeclarator> ParseNoPtrDeclarator() {
+    if (reader_.Current().type != TokenType::kId) {
+      return {};
+    }
+    auto token = reader_.Read();
+    auto n = std::make_shared<NoPtrDeclarator>();
+    n->id = std::make_shared<Identifier>();
+    n->id->value = token.string_value;
     return n;
   }
 };
