@@ -171,6 +171,7 @@ class CodeGenerateVisitor : public BaseVisitor {
       return;
     }
 
+    code_.push_back(AssemblyLine("  push rbp"));
     code_.push_back(AssemblyLine("  mov rbp, rsp"));
     code_.push_back(AssemblyLine("  sub rsp, %1%"));
     size_t rsp_line = code_.size() - 1;
@@ -180,8 +181,13 @@ class CodeGenerateVisitor : public BaseVisitor {
     }
 
     size_t stack_size = (last_rbp_offset_ + 15) & ~static_cast<size_t>(15);
-    code_[rsp_line].Format(stack_size);
-    code_.push_back(AssemblyLine("  add rsp, %1%").Format(stack_size));
+    if (stack_size == 0) {
+      code_.erase(code_.begin() + rsp_line);
+    } else {
+      code_[rsp_line].Format(stack_size);
+      code_.push_back(AssemblyLine("  mov rsp, rbp"));
+    }
+    code_.push_back(AssemblyLine("  pop rbp"));
   }
 
   void Visit(ExpressionStatement* stmt, bool lvalue) {
